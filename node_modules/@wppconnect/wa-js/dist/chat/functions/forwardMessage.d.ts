@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 import { MsgKey, Wid } from '../../whatsapp';
-export interface ForwardMessagesOptions {
+export interface ForwardMessageOptions {
     displayCaptionText?: boolean;
     multicast?: boolean;
 }
 /**
- * Forward messages to a chat
+ * Forward message to a chat
  *
  * @example
  * ```javascript
- * // Forward messages
+ * // Forward message
  * WPP.chat.forwardMessage('[number]@c.us', 'true_[number]@c.us_ABCDEF');
  * ```
  * @category Message
  * @return  {any} Any
  */
-export declare function forwardMessage(toChatId: string | Wid, msgId: string | MsgKey, options?: ForwardMessagesOptions): Promise<boolean>;
+export declare function forwardMessage(toChatId: string | Wid, msgId: string | MsgKey, options?: ForwardMessageOptions): Promise<boolean>;

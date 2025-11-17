@@ -20,6 +20,8 @@ import { ContactModel, Wid } from '../../whatsapp';
  * @example
  * ```javascript
  * await WPP.contact.get('[number]@c.us');
+ * await WPP.contact.get('[number]@lid');
+ * await WPP.contact.get('[number]@g.us');
  * ```
  *
  * @category Contact

@@ -54,6 +54,7 @@ export * from './findChat';
 export * from './findCommonGroups';
 export * from './findFirstWebLink';
 export * from './findOrCreateLatestChat';
+export * from './forwardMessages';
 export * from './forwardMessagesToChats';
 export * from './frontendFireAndForget';
 export * from './genBotMsgSecretFromMsgSecret';

@@ -10,7 +10,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@wppconnect-team/wppconnect": "^1.37.3",
+    "@wppconnect-team/wppconnect": "^1.37.6",
+    "jimp": "^0.22.12",
+    "jsqr": "^1.4.0",
     "puppeteer": "^24.16.0",
     "qrcode": "^1.5.4"
   }

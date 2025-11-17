@@ -22,6 +22,8 @@ import { Wid } from '../../whatsapp';
  * await WPP.chat.openChatBottom('[number]@c.us');
  * ```
  *
+ * @argument chatEntryPoint Optional chat entry point: "Chatlist" for any existing chat in the left panel, undefined for any other case.
+ *
  * @category Chat
  */
-export declare function openChatBottom(chatId: string | Wid): Promise<boolean>;
+export declare function openChatBottom(chatId: string | Wid, chatEntryPoint: string | undefined): Promise<boolean>;

@@ -22,6 +22,8 @@ import { Wid } from '../../whatsapp';
  * await WPP.chat.openChatFromUnread('[number]@c.us');
  * ```
  *
+ * @argument chatEntryPoint Optional chat entry point: "Chatlist" for any existing chat in the left panel, undefined for any other case.
+ *
  * @category Chat
  */
-export declare function openChatFromUnread(chatId: string | Wid): Promise<boolean>;
+export declare function openChatFromUnread(chatId: string | Wid, chatEntryPoint: string | undefined): Promise<boolean>;

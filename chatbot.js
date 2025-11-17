@@ -25,6 +25,8 @@ const contatos = Array.isArray(contatosData) ? contatosData : (contatosData && A
 const fs = require('fs');
 const os = require('os');
 const QRCode = require('qrcode');
+const Jimp = require('jimp');
+const jsQR = require('jsqr');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
 
@@ -388,6 +390,162 @@ console.log('ℹ️ Using session:', sessionName);
 console.log('ℹ️ Script __dirname:', __dirname);
 console.log('✅ Iniciando wppconnect.create() — aguardando QR code...\n');
 
+// Variável para rastrear se o QR já foi exibido
+let qrShown = false;
+
+// Função para decodificar QR de screenshot via jsQR
+async function decodeQRFromScreenshot(screenshotBase64) {
+  try {
+    // Converter base64 para buffer
+    const buffer = Buffer.from(screenshotBase64, 'base64');
+    
+    // Usar Jimp para carregar a imagem
+    const image = await Jimp.read(buffer);
+    
+    // Extrair dados de pixel (RGBA)
+    const imageData = {
+      data: new Uint8ClampedArray(image.bitmap.data),
+      width: image.bitmap.width,
+      height: image.bitmap.height
+    };
+    
+    // Decodificar QR code usando jsQR
+    const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
+    
+    if (qrCode && qrCode.data) {
+      return qrCode.data;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Função para capturar e exibir QR continuamente
+async function captureAndDisplayQR(client) {
+  const maxAttempts = 600; // 10 minutos (600 * 1s)
+  let lastError = '';
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const waPage = client.waPage;
+      if (!waPage) {
+        if (attempt === 0) console.log('⏳ Aguardando página Puppeteer...');
+        await delay(1000);
+        continue;
+      }
+
+      // MÉTODO 1: Tenta extrair QR do DOM (canvas/img)
+      const qrData = await waPage.evaluate(() => {
+        try {
+          // Procura canvas (QR renderizado como canvas)
+          const canvas = document.querySelector('canvas');
+          if (canvas && canvas.offsetHeight > 100 && canvas.offsetWidth > 100) {
+            return { type: 'canvas', data: canvas.toDataURL('image/png') };
+          }
+          
+          // Procura img com base64 (QR como imagem)
+          const img = document.querySelector('img[src^="data:image"]');
+          if (img && img.naturalWidth > 100) {
+            return { type: 'img', data: img.src };
+          }
+
+          return null;
+        } catch (e) {
+          return null;
+        }
+      });
+
+      // MÉTODO 2: Se método 1 falhar, tira screenshot e decodifica
+      let qrText = null;
+      if (!qrData && !qrShown) {
+        try {
+          const screenshot = await waPage.screenshot({ encoding: 'base64' });
+          qrText = await decodeQRFromScreenshot(screenshot);
+        } catch (e) {
+          // Screenshot falhou, continua
+        }
+      }
+
+      // Se encontrou QR por qualquer método, exibe
+      if ((qrData || qrText) && !qrShown) {
+        console.log('\n' + '='.repeat(80));
+        console.log('📱 QR CODE ENCONTRADO! Exibindo no terminal...');
+        console.log('='.repeat(80) + '\n');
+        
+        if (qrData) {
+          const cleanData = qrData.data.replace(/^data:image\/png;base64,/, '');
+          try {
+            const asciiQR = await new Promise((resolve) => {
+              QRCode.toString(cleanData, { type: 'terminal', width: 15 }, (err, result) => {
+                resolve(err ? null : result);
+              });
+            });
+            if (asciiQR) {
+              console.log(asciiQR);
+            }
+          } catch (e) {
+            // Render falhou
+          }
+        } else if (qrText) {
+          console.log('✅ QR Decodificado via screenshot!');
+          console.log('Dados encontrados: ' + qrText.substring(0, 100) + '...\n');
+          // Tenta renderizar mesmo assim
+          try {
+            const asciiQR = await new Promise((resolve) => {
+              QRCode.toString(qrText, { type: 'terminal', width: 15 }, (err, result) => {
+                resolve(err ? null : result);
+              });
+            });
+            if (asciiQR) {
+              console.log(asciiQR);
+            }
+          } catch (e) {
+            // Render falhou
+          }
+        }
+
+        console.log('\n' + '='.repeat(80));
+        console.log('📸 INSTRUÇÕES:');
+        console.log('  1. Abra WhatsApp no CELULAR');
+        console.log('  2. Vá em: Configurações → Aparelhos conectados');
+        console.log('  3. Aponte a câmera do CELULAR para o QR acima e ESCANEIE');
+        console.log('='.repeat(80) + '\n');
+        
+        qrShown = true;
+      }
+      
+      // Se QR já foi mostrado, verificar se autenticou
+      if (qrShown) {
+        try {
+          const profileName = await client.getProfileName();
+          if (profileName && String(profileName).trim().length > 0) {
+            console.log('🎉 Autenticação CONCLUÍDA! Bem-vindo:', profileName);
+            return true;
+          }
+        } catch (e) {
+          // Ainda não autenticado
+        }
+      }
+
+      if (attempt === 0) console.log('⏳ Monitorando página para QR...');
+      if (attempt % 10 === 0 && attempt > 0) {
+        console.log(`⏳ Aguardando... ${attempt}s`);
+      }
+      await delay(1000);
+      
+    } catch (e) {
+      const errMsg = e && e.message ? e.message : String(e);
+      if (errMsg !== lastError) {
+        console.log('ℹ️ Monitoramento:', errMsg);
+        lastError = errMsg;
+      }
+      await delay(1000);
+    }
+  }
+  return false;
+}
+
 wppconnect.create({
   session: sessionName,
   headless: false,  // ← MOSTRAR NAVEGADOR
@@ -396,26 +554,27 @@ wppconnect.create({
   logQR: true,  // ← DEIXAR wppconnect LOGAR QR AUTOMATICAMENTE (default)
   disableWelcome: false,
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
-  // wppconnect vai logar QR automaticamente no terminal
-  // Mas se por algum motivo não logar, vamos capturar aqui
   catchQR: (qrCode, asciiQR) => {
-    console.log('\n' + '='.repeat(80));
-    console.log('🔗 QR CODE CAPTURADO VIA CALLBACK');
-    console.log('='.repeat(80));
-    if (qrCode) {
+    if (!qrShown && qrCode) {
+      console.log('\n' + '='.repeat(80));
+      console.log('� QR CODE CAPTURADO VIA CALLBACK');
+      console.log('='.repeat(80) + '\n');
       try {
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
-        QRCode.toString(cleanData, { type: 'terminal' }, (err, result) => {
-          if (!err && result) console.log(result);
-          else console.log('(QR visível na janela Chrome)');
+        QRCode.toString(cleanData, { type: 'terminal', width: 15 }, (err, result) => {
+          if (!err && result) {
+            console.log(result);
+          } else if (asciiQR) {
+            console.log(asciiQR);
+          }
+          console.log('\n' + '='.repeat(80) + '\n');
+          qrShown = true;
         });
       } catch (e) {
-        console.log('(QR visível na janela Chrome)');
+        if (asciiQR) console.log(asciiQR);
+        qrShown = true;
       }
-    } else if (asciiQR) {
-      console.log(asciiQR);
     }
-    console.log('='.repeat(80) + '\n');
   },
   puppeteerOptions: {
     // improve stability on small VPS / container environments
@@ -429,21 +588,26 @@ wppconnect.create({
 }).then(async (client) => {
   console.log('\n✅ ✅ ✅ BOT CONECTADO ✅ ✅ ✅\n');
   
-  // Verificar se está realmente autenticado
-  const isReallyLogged = await new Promise((resolve) => {
-    setTimeout(() => {
-      // Tenta fazer uma chamada simples que só funciona se autenticado
-      client.getStatus().then(() => resolve(true)).catch(() => resolve(false));
-    }, 2000);
-  }).catch(() => false);
+  // Inicia captura de QR em background
+  const qrCapturePromise = captureAndDisplayQR(client);
+  
+  // Aguarda um pouco para a página carregar
+  await delay(3000);
+  
+  let isReallyLogged = false;
+  try {
+    // Tenta obter o nome do perfil - só funciona se autenticado
+    const profileName = await client.getProfileName();
+    console.log('✅ Perfil obtido:', profileName);
+    isReallyLogged = profileName && String(profileName).trim().length > 0;
+  } catch (e) {
+    console.log('ℹ️ Erro ao obter perfil:', e && e.message ? e.message : 'desconhecido');
+    isReallyLogged = false;
+  }
   
   if (!isReallyLogged) {
-    console.log('\n🔍 DETECÇÃO: Sessão NÃO está autenticada. Verifique o QR Code:\n');
-    console.log('  1. Uma JANELA DO NAVEGADOR CHROME deve estar aberta');
-    console.log('  2. Procure o QR Code no LADO ESQUERDO da tela');
-    console.log('  3. Abra WhatsApp no seu CELULAR → Configurações → Aparelhos conectados');
-    console.log('  4. Aponte para o QR Code com o CELULAR e ESCANEIE');
-    console.log('\n  ⏳ Aguardando escanear o QR Code...\n');
+    console.log('\n🔍 DETECÇÃO: Sessão NÃO está autenticada!');
+    console.log('⏳ Verificando página para QR code...\n');
   } else {
     console.log('🎉 Sessão conectada ao WhatsApp!\n');
   }
