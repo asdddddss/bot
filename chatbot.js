@@ -374,7 +374,16 @@ async function captureQRFromPage(page, maxAttempts = 120) {
 const contatosIniciados = new Map();
 
 // session name can be overridden with env WPP_SESSION to allow multiple copies
-const sessionName = process.env.WPP_SESSION || 'disparador';
+let sessionName = process.env.WPP_SESSION || 'disparador';
+
+// Se não houver tokens salvos, force uma sessão nova com timestamp para garantir QR fresco
+const tokenPath = path.join(__dirname, 'tokens', sessionName);
+if (!fs.existsSync(tokenPath)) {
+  console.log('⚠️ Nenhuma sessão autenticada encontrada. Forçando autenticação nova...');
+  // Usar timestamp para garantir sessão única = novo QR
+  sessionName = `${sessionName}-auth-${Date.now()}`;
+}
+
 console.log('ℹ️ Using session:', sessionName);
 console.log('ℹ️ Script __dirname:', __dirname);
 console.log('✅ Iniciando wppconnect.create() — aguardando QR code...\n');
@@ -388,6 +397,26 @@ wppconnect.create({
   disableWelcome: false,
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
   // wppconnect vai logar QR automaticamente no terminal
+  // Mas se por algum motivo não logar, vamos capturar aqui
+  catchQR: (qrCode, asciiQR) => {
+    console.log('\n' + '='.repeat(80));
+    console.log('🔗 QR CODE CAPTURADO VIA CALLBACK');
+    console.log('='.repeat(80));
+    if (qrCode) {
+      try {
+        const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
+        QRCode.toString(cleanData, { type: 'terminal' }, (err, result) => {
+          if (!err && result) console.log(result);
+          else console.log('(QR visível na janela Chrome)');
+        });
+      } catch (e) {
+        console.log('(QR visível na janela Chrome)');
+      }
+    } else if (asciiQR) {
+      console.log(asciiQR);
+    }
+    console.log('='.repeat(80) + '\n');
+  },
   puppeteerOptions: {
     // improve stability on small VPS / container environments
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
@@ -398,8 +427,26 @@ wppconnect.create({
     defaultViewport: null
   }
 }).then(async (client) => {
-  console.log('\n✅ ✅ ✅ AUTENTICAÇÃO CONCLUÍDA! ✅ ✅ ✅\n');
-  console.log('🎉 Sessão conectada ao WhatsApp!\n');
+  console.log('\n✅ ✅ ✅ BOT CONECTADO ✅ ✅ ✅\n');
+  
+  // Verificar se está realmente autenticado
+  const isReallyLogged = await new Promise((resolve) => {
+    setTimeout(() => {
+      // Tenta fazer uma chamada simples que só funciona se autenticado
+      client.getStatus().then(() => resolve(true)).catch(() => resolve(false));
+    }, 2000);
+  }).catch(() => false);
+  
+  if (!isReallyLogged) {
+    console.log('\n🔍 DETECÇÃO: Sessão NÃO está autenticada. Verifique o QR Code:\n');
+    console.log('  1. Uma JANELA DO NAVEGADOR CHROME deve estar aberta');
+    console.log('  2. Procure o QR Code no LADO ESQUERDO da tela');
+    console.log('  3. Abra WhatsApp no seu CELULAR → Configurações → Aparelhos conectados');
+    console.log('  4. Aponte para o QR Code com o CELULAR e ESCANEIE');
+    console.log('\n  ⏳ Aguardando escanear o QR Code...\n');
+  } else {
+    console.log('🎉 Sessão conectada ao WhatsApp!\n');
+  }
 
   // ---------- START: funções para consultas/envio manuais sem parar o bot ----------
   const STARTED_FILE = path.join(__dirname, 'contatos_iniciados.json');
