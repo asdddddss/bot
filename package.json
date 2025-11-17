@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "@wppconnect-team/wppconnect": "^1.37.3",
-    "puppeteer": "^24.16.0"
+    "puppeteer": "^24.16.0",
+    "qrcode": "^1.5.4"
   }
 }

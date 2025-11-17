@@ -24,6 +24,7 @@ const contatosData = require(path.join(__dirname, 'contatos_filtrados.json'));
 const contatos = Array.isArray(contatosData) ? contatosData : (contatosData && Array.isArray(contatosData.contatos) ? contatosData.contatos : []);
 const fs = require('fs');
 const os = require('os');
+const QRCode = require('qrcode');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
 
@@ -301,6 +302,72 @@ async function uiFindContactByExactName(client, displayName) {
 
 let enviados = 0;
 let falhas = 0;
+// Função para capturar QR diretamente da página via Puppeteer (fallback garantido)
+async function captureQRFromPage(page, maxAttempts = 120) {
+  let attempts = 0;
+  while (attempts < maxAttempts) {
+    try {
+      // Tenta encontrar a imagem do QR na página
+      const qrImageData = await page.evaluate(() => {
+        // Procura por canvas com QR (pode estar visível ou hidden)
+        const canvases = document.querySelectorAll('canvas');
+        for (const canvas of canvases) {
+          try {
+            // Qualquer canvas de tamanho razoável pode ser QR
+            if (canvas.width > 50 && canvas.height > 50) {
+              const data = canvas.toDataURL('image/png');
+              // Verifica se tem conteúdo (não é branco)
+              if (data && data.length > 500) {
+                return data;
+              }
+            }
+          } catch (e) {
+            // ignore canvas access errors (CORS, etc)
+          }
+        }
+        // Procura por divs que contenham QR (div.qr-code, etc)
+        const qrDivs = document.querySelectorAll('[class*="qr"], [id*="qr"], svg[data-qr]');
+        for (const div of qrDivs) {
+          if (div && div.offsetHeight > 50 && div.offsetWidth > 50) {
+            // Tenta extrair como imagem
+            try {
+              if (div.tagName === 'IMG') return div.src;
+              if (div.tagName === 'CANVAS') return div.toDataURL('image/png');
+            } catch (e) {}
+          }
+        }
+        return null;
+      });
+
+      if (qrImageData && qrImageData.length > 500) {
+        console.log('\n📸 QR Code capturado via Puppeteer!\n');
+        const cleanData = qrImageData.replace(/^data:image\/png;base64,/, '');
+        await new Promise((resolve) => {
+          QRCode.toString(cleanData, { type: 'terminal' }, (err, result) => {
+            if (!err && result) {
+              console.log('📱 QR Code (ASCII Art):\n');
+              console.log(result);
+            } else {
+              console.log('📸 QR detectado (pode estar visível na janela Chrome)\n');
+            }
+            resolve();
+          });
+        });
+        console.log('\n⏳ Aguardando você escanear o QR code...\n');
+        return true;
+      }
+    } catch (err) {
+      // ignore errors, continue trying
+    }
+    
+    attempts++;
+    if (attempts % 20 === 0) {
+      console.log(`⏳ Aguardando QR na página... (${attempts}s)`);
+    }
+    await delay(1000);
+  }
+  return false;
+}
 
 // Mapa para armazenar quais contatos foram iniciados por este bot
 // chave: chatId (ex: '5511999999999@c.us'), valor: { startedAt: timestamp }
@@ -311,58 +378,53 @@ const sessionName = process.env.WPP_SESSION || 'disparador';
 console.log('ℹ️ Using session:', sessionName);
 console.log('ℹ️ Script __dirname:', __dirname);
 console.log('✅ Iniciando wppconnect.create() — aguardando QR code...\n');
+
 wppconnect.create({
   session: sessionName,
   headless: false,
-  // disable automatic closing so the bot remains active to receive replies
   autoClose: false,
-  // Increase protocolTimeout to avoid Runtime.callFunctionOn timed out errors in slow environments
-  // Default raised to 300000 ms (5 minutes). Can be overridden with env PROTOCOL_TIMEOUT (milliseconds)
+  waitForLogin: false,  // Deixa rodar sem forçar autenticação
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
-  catchQR: (base64Qr, asciiQR) => {
-    try {
-      // GARANTIDO: sempre imprimir QR no terminal
-      console.log('\n' + '='.repeat(70));
-      console.log('🔗 ESCANEIE O QR CODE PARA PAREAR O WHATSAPP!');
-      console.log('='.repeat(70) + '\n');
-      
-      // Print ASCII QR if available (works well in terminals/logs)
-      if (asciiQR && String(asciiQR).trim()) {
-        console.log('📱 QR Code (ASCII):');
-        console.log(asciiQR);
-      } else {
-        console.log('ℹ️ ASCII QR não disponível — usando formato data URI.');
+  catchQR: (qrCode, asciiQR) => {
+    console.log('\n' + '='.repeat(80));
+    console.log('🔗🔗🔗 ⭐ QR CODE APARECEU ⭐ 🔗🔗🔗');
+    console.log('='.repeat(80));
+    console.log('\n📱 ESCANEIE O QR ABAIXO COM O SEU WHATSAPP:\n');
+    
+    if (qrCode) {
+      try {
+        const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
+        QRCode.toString(cleanData, { type: 'terminal' }, (err, result) => {
+          if (!err && result) {
+            console.log(result);
+          } else {
+            console.log('(QR visível na janela Chrome — veja o navegador)');
+          }
+          console.log('\n⏳ Aguardando escanear...\n' + '='.repeat(80) + '\n');
+        });
+      } catch (e) {
+        console.log('(QR visível na janela Chrome — veja o navegador)');
+        console.log('\n⏳ Aguardando escanear...\n' + '='.repeat(80) + '\n');
       }
-
-      // If base64 image is provided, print a data URI so you can copy/paste to view
-      if (base64Qr && String(base64Qr).trim()) {
-        // base64Qr may already be the raw base64 image or a data URI — normalize
-        const raw = String(base64Qr).trim();
-        const maybeDataUri = raw.startsWith('data:image') ? raw : `data:image/png;base64,${raw}`;
-        console.log('\n🔁 QR Code (Data URI) — copie e cole em um navegador para visualizar:');
-        console.log(maybeDataUri);
-
-        // attempt to save to a temporary file so platforms like Railway can expose it in logs or allow download
-        try {
-          const tmpDir = os.tmpdir() || '/tmp';
-          const tmpPath = path.join(tmpDir, `wpp_qr_${sessionName}.png`);
-          // raw might be data URI or plain base64
-          const base64Only = maybeDataUri.split(',')[1] || maybeDataUri;
-          const buf = Buffer.from(base64Only, 'base64');
-          fs.writeFileSync(tmpPath, buf);
-          console.log(`🖼️ QR salvo temporariamente em: ${tmpPath}`);
-        } catch (saveErr) {
-          if (process.env.WPP_DEBUG_MATCH) console.log('⚠️ Não foi possível salvar QR temporário:', saveErr && saveErr.message ? saveErr.message : saveErr);
-        }
-      } else {
-        console.log('ℹ️ Base64 do QR não disponível.');
-      }
-    } catch (e) {
-      console.log('⚠️ Erro ao exibir QR:', e && e.message ? e.message : e);
+    } else if (asciiQR) {
+      console.log(asciiQR);
+      console.log('\n⏳ Aguardando escanear...\n' + '='.repeat(80) + '\n');
     }
   },
   statusFind: (statusSession) => {
-    console.log(`📡 Status da sessão: ${statusSession}`);
+    const status = String(statusSession).toLowerCase();
+    console.log(`📡 Status: ${statusSession}`);
+    
+    if (status.includes('qrcode') || status.includes('qr')) {
+    }
+  },
+  onQrCode: (qrCode, asciiQR) => {
+    console.log('[onQrCode triggered]');
+    console.log('\n' + '='.repeat(70));
+    console.log('🔗 QR CODE (via onQrCode)');
+    console.log('='.repeat(70) + '\n');
+    if (asciiQR) console.log(asciiQR);
+    if (qrCode) console.log(qrCode);
   },
   puppeteerOptions: {
     // improve stability on small VPS / container environments
@@ -374,7 +436,8 @@ wppconnect.create({
     defaultViewport: null
   }
 }).then(async (client) => {
-  console.log('✅ Sessão conectada e pronta para enviar mensagens!');
+  console.log('\n✅ ✅ ✅ AUTENTICAÇÃO CONCLUÍDA! ✅ ✅ ✅\n');
+  console.log('🎉 Sessão conectada ao WhatsApp!\n');
 
   // ---------- START: funções para consultas/envio manuais sem parar o bot ----------
   const STARTED_FILE = path.join(__dirname, 'contatos_iniciados.json');
@@ -985,5 +1048,10 @@ wppconnect.create({
     process.exit(0);
   });
 }).catch((err) => {
-  console.log('❌ Erro ao iniciar o bot:', err.message);
+  console.log('❌ Erro ao iniciar o bot:', err && err.message ? err.message : String(err));
+  console.log('\n📌 DICAS:');
+  console.log('   1. Verifique se a pasta tokens/disparador foi deletada');
+  console.log('   2. Verifique se o navegador Chrome está disponível');
+  console.log('   3. Tente novamente ou use um novo WPP_SESSION\n');
+  process.exit(1);
 });
