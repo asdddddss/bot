@@ -310,9 +310,10 @@ const contatosIniciados = new Map();
 const sessionName = process.env.WPP_SESSION || 'disparador';
 console.log('ℹ️ Using session:', sessionName);
 console.log('ℹ️ Script __dirname:', __dirname);
+console.log('✅ Iniciando wppconnect.create() — aguardando QR code...\n');
 wppconnect.create({
   session: sessionName,
-  headless: true,
+  headless: false,
   // disable automatic closing so the bot remains active to receive replies
   autoClose: false,
   // Increase protocolTimeout to avoid Runtime.callFunctionOn timed out errors in slow environments
@@ -320,12 +321,17 @@ wppconnect.create({
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
   catchQR: (base64Qr, asciiQR) => {
     try {
-      console.log('\n🔗 Escaneie o QR Code para parear o WhatsApp!');
+      // GARANTIDO: sempre imprimir QR no terminal
+      console.log('\n' + '='.repeat(70));
+      console.log('🔗 ESCANEIE O QR CODE PARA PAREAR O WHATSAPP!');
+      console.log('='.repeat(70) + '\n');
+      
       // Print ASCII QR if available (works well in terminals/logs)
       if (asciiQR && String(asciiQR).trim()) {
+        console.log('📱 QR Code (ASCII):');
         console.log(asciiQR);
       } else {
-        console.log('ℹ️ ASCII QR não disponível.');
+        console.log('ℹ️ ASCII QR não disponível — usando formato data URI.');
       }
 
       // If base64 image is provided, print a data URI so you can copy/paste to view
@@ -333,7 +339,7 @@ wppconnect.create({
         // base64Qr may already be the raw base64 image or a data URI — normalize
         const raw = String(base64Qr).trim();
         const maybeDataUri = raw.startsWith('data:image') ? raw : `data:image/png;base64,${raw}`;
-        console.log('\n🔁 QR (data URI) — copie e cole em um navegador para visualizar:');
+        console.log('\n🔁 QR Code (Data URI) — copie e cole em um navegador para visualizar:');
         console.log(maybeDataUri);
 
         // attempt to save to a temporary file so platforms like Railway can expose it in logs or allow download
