@@ -13,6 +13,7 @@ open_conversations.json
 log*.txt
 *.log
 npm-debug.log*
+qrcode.png
 
 # Env and editor
 .env
