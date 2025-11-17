@@ -381,51 +381,13 @@ console.log('✅ Iniciando wppconnect.create() — aguardando QR code...\n');
 
 wppconnect.create({
   session: sessionName,
-  headless: false,
-  autoClose: false,
-  waitForLogin: false,  // Deixa rodar sem forçar autenticação
+  headless: false,  // ← MOSTRAR NAVEGADOR
+  autoClose: 0,  // ← NUNCA FECHAR AUTOMATICAMENTE (0 = desabilitar)
+  waitForLogin: false,  // ← NÃO BLOQUEAR, deixar rodar
+  logQR: true,  // ← DEIXAR wppconnect LOGAR QR AUTOMATICAMENTE (default)
+  disableWelcome: false,
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
-  catchQR: (qrCode, asciiQR) => {
-    console.log('\n' + '='.repeat(80));
-    console.log('🔗🔗🔗 ⭐ QR CODE APARECEU ⭐ 🔗🔗🔗');
-    console.log('='.repeat(80));
-    console.log('\n📱 ESCANEIE O QR ABAIXO COM O SEU WHATSAPP:\n');
-    
-    if (qrCode) {
-      try {
-        const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
-        QRCode.toString(cleanData, { type: 'terminal' }, (err, result) => {
-          if (!err && result) {
-            console.log(result);
-          } else {
-            console.log('(QR visível na janela Chrome — veja o navegador)');
-          }
-          console.log('\n⏳ Aguardando escanear...\n' + '='.repeat(80) + '\n');
-        });
-      } catch (e) {
-        console.log('(QR visível na janela Chrome — veja o navegador)');
-        console.log('\n⏳ Aguardando escanear...\n' + '='.repeat(80) + '\n');
-      }
-    } else if (asciiQR) {
-      console.log(asciiQR);
-      console.log('\n⏳ Aguardando escanear...\n' + '='.repeat(80) + '\n');
-    }
-  },
-  statusFind: (statusSession) => {
-    const status = String(statusSession).toLowerCase();
-    console.log(`📡 Status: ${statusSession}`);
-    
-    if (status.includes('qrcode') || status.includes('qr')) {
-    }
-  },
-  onQrCode: (qrCode, asciiQR) => {
-    console.log('[onQrCode triggered]');
-    console.log('\n' + '='.repeat(70));
-    console.log('🔗 QR CODE (via onQrCode)');
-    console.log('='.repeat(70) + '\n');
-    if (asciiQR) console.log(asciiQR);
-    if (qrCode) console.log(qrCode);
-  },
+  // wppconnect vai logar QR automaticamente no terminal
   puppeteerOptions: {
     // improve stability on small VPS / container environments
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
