@@ -1210,6 +1210,48 @@ wppconnect.create({
     console.log(`🫡 Bot ativo. Enviados: ${enviados}, Falhas: ${falhas}. ${new Date().toISOString()}`);
   }, 5 * 60 * 1000); // every 5 minutes
 
+  // --- New: shutdown watcher ---
+  // The bot will remain active until the configured shutdown time in TARGET_TIMEZONE
+  const SHUTDOWN_HOUR = process.env.SHUTDOWN_HOUR ? Number(process.env.SHUTDOWN_HOUR) : 19; // default 19
+  const SHUTDOWN_MINUTE = process.env.SHUTDOWN_MINUTE ? Number(process.env.SHUTDOWN_MINUTE) : 30; // default :30
+
+  function getMinuteInTimeZone(timeZone) {
+    try {
+      const dtf = new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, minute: '2-digit', hour: '2-digit', second: '2-digit' });
+      const parts = dtf.formatToParts(new Date());
+      const minutePart = parts.find(p => p.type === 'minute');
+      return minutePart ? Number(minutePart.value) : new Date().getMinutes();
+    } catch (e) {
+      return new Date().getMinutes();
+    }
+  }
+
+  // Start watcher that will gracefully close the client when TARGET_TIMEZONE reaches SHUTDOWN_HOUR:SHUTDOWN_MINUTE.
+  (function startShutdownWatcher() {
+    try {
+      console.log(`⏳ Bot ficará ativo até ${String(SHUTDOWN_HOUR).padStart(2,'0')}:${String(SHUTDOWN_MINUTE).padStart(2,'0')} (${TARGET_TIMEZONE}).`);
+      const checkInterval = setInterval(async () => {
+        try {
+          const hr = getHourInTimeZone(TARGET_TIMEZONE);
+          const minute = getMinuteInTimeZone(TARGET_TIMEZONE);
+          if (hr > SHUTDOWN_HOUR || (hr === SHUTDOWN_HOUR && minute >= SHUTDOWN_MINUTE)) {
+            clearInterval(checkInterval);
+            console.log(`⏰ ${TARGET_TIMEZONE} alcançou ${String(SHUTDOWN_HOUR).padStart(2,'0')}:${String(SHUTDOWN_MINUTE).padStart(2,'0')} — encerrando bot.`);
+            try {
+              if (client && client.close) await client.close();
+            } catch (e) { console.log('⚠️ Erro ao fechar client durante shutdown:', e && e.message ? e.message : e); }
+            process.exit(0);
+          }
+          // optional: log remaining time every 10 minutes
+        } catch (e) {
+          /* ignore transient errors in watcher */
+        }
+      }, 30 * 1000); // check every 30s
+    } catch (e) {
+      console.log('⚠️ Não foi possível iniciar shutdown watcher:', e && e.message ? e.message : e);
+    }
+  })();
+
   // Graceful shutdown on CTRL+C
   process.on('SIGINT', async () => {
     console.log('\n⏹️ Recebido SIGINT — encerrando sessão...');
