@@ -623,6 +623,7 @@ wppconnect.create({
   disableWelcome: false,
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
   catchQR: (qrCode, asciiQR) => {
+    console.log('🔔 catchQR callback acionado! qrCode recebido:', !!qrCode);
     if (!qrShown && qrCode) {
       console.log('\n' + '='.repeat(80));
       console.log('✅ QR CODE CAPTURADO COM SUCESSO!');
@@ -630,6 +631,7 @@ wppconnect.create({
       try {
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
         qrImageData = cleanData;
+        console.log('✅ QR Image Data armazenado com', cleanData.length, 'bytes');
         
         console.log('\n🌟 OPÇÕES PARA ESCANEAR:\n');
         console.log('1️⃣  ACESO NO NAVEGADOR (RECOMENDADO):');
