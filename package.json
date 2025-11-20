@@ -11,6 +11,9 @@
   "description": "",
   "dependencies": {
     "@wppconnect-team/wppconnect": "^1.37.6",
+    "axios": "^1.13.2",
+    "form-data": "^4.0.5",
+    "imgur": "^2.5.0",
     "jimp": "^0.22.12",
     "jsqr": "^1.4.0",
     "puppeteer": "^24.16.0",

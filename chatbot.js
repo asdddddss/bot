@@ -29,8 +29,50 @@ const Jimp = require('jimp');
 const jsQR = require('jsqr');
 const http = require('http');
 const url = require('url');
+const axios = require('axios');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
+
+// ===== CONFIGURAÇÃO DO IMGUR =====
+const IMGUR_CLIENT_ID = process.env.IMGUR_CLIENT_ID || '8f72e7c2e96c5d3'; // Client ID anônimo (limite: 1250/hora)
+let lastImgurUrl = null;
+
+// Função para fazer upload da imagem QR para o Imgur
+async function uploadQRToImgur(base64ImageData) {
+  try {
+    if (!base64ImageData) {
+      console.log('⚠️ Nenhuma imagem para fazer upload');
+      return null;
+    }
+
+    // Remover prefixo data:image se existir
+    const cleanData = base64ImageData.replace(/^data:image\/png;base64,/, '');
+    
+    console.log('⏳ Uploadando QR code para o Imgur...');
+    
+    // Fazer upload usando axios
+    const response = await axios.post('https://api.imgur.com/3/image', {
+      image: cleanData,
+      type: 'base64'
+    }, {
+      headers: {
+        'Authorization': `Client-ID ${IMGUR_CLIENT_ID}`
+      }
+    });
+
+    if (response.data.success && response.data.data && response.data.data.link) {
+      lastImgurUrl = response.data.data.link;
+      console.log('✅ QR Code enviado com sucesso para o Imgur!');
+      console.log(`🌐 Link: ${lastImgurUrl}`);
+      return lastImgurUrl;
+    } else {
+      throw new Error('Resposta inválida do Imgur');
+    }
+  } catch (e) {
+    console.log('⚠️ Erro ao fazer upload para o Imgur:', e && e.message ? e.message : e);
+    return null;
+  }
+}
 
 // ===== SERVIDOR HTTP PARA EXIBIR QR CODE =====
 const QR_SERVER_PORT = process.env.QR_SERVER_PORT ? Number(process.env.QR_SERVER_PORT) : 3000;
@@ -111,6 +153,21 @@ const qrServer = http.createServer((req, res) => {
             <img src="${qrSrc}" alt="QR Code">
           </div>
           
+          ${lastImgurUrl ? `
+            <div style="background: #fffbea; padding: 20px; border-radius: 10px; border-left: 4px solid #ffc107; margin-top: 20px; text-align: left;">
+              <h3 style="margin: 0 0 10px 0; color: #333;">🌐 Link do Imgur (compartilhável):</h3>
+              <p style="margin: 0; word-break: break-all;">
+                <a href="${lastImgurUrl}" target="_blank" style="color: #667eea; text-decoration: none; font-weight: bold;">
+                  ${lastImgurUrl}
+                </a>
+              </p>
+            </div>
+          ` : `
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 10px; margin-top: 20px; color: #999;">
+              ⏳ Gerando link do Imgur...
+            </div>
+          `}
+          
           <div class="instructions">
             <h2>Como escanear:</h2>
             <ol>
@@ -124,6 +181,12 @@ const qrServer = http.createServer((req, res) => {
           
           <div class="timestamp">Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
         </div>
+        <script>
+          // Auto-refresh se o Imgur ainda não foi carregado
+          if (!document.querySelector('a[href*="imgur"]')) {
+            setTimeout(() => location.reload(), 3000);
+          }
+        </script>
       </body>
       </html>
     `);
@@ -762,19 +825,26 @@ wppconnect.create({
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
         qrImageData = cleanData;
         
-        console.log('\n🌟 COMO ESCANEAR:\n');
-        console.log('1️⃣  ACESO LOCAL (Seu computador):');
-        console.log(`   👉 http://localhost:${QR_SERVER_PORT}\n`);
+        // Upload para o Imgur em background (não bloquear)
+        uploadQRToImgur(qrCode).then(link => {
+          if (link) {
+            console.log('✅ Link do Imgur gerado:');
+            console.log(`   👉 ${link}\n`);
+          }
+        }).catch(err => {
+          // Silenciosamente ignore erros do Imgur
+        });
         
-        console.log('2️⃣  ACESSO NA VPS:');
-        console.log(`   👉 http://<SEU-IP-VPS>:${QR_SERVER_PORT}`);
-        console.log('   (Substitua <SEU-IP-VPS> pelo IP da sua VPS)\n');
+        console.log('\n🌟 OPÇÕES PARA ESCANEAR:\n');
+        console.log('1️⃣  ACESO NO NAVEGADOR (RECOMENDADO):');
+        console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
+        console.log(`   👉 http://<SEU-IP-VPS>:${QR_SERVER_PORT}\n`);
         
-        console.log('3️⃣  PRÓXIMOS PASSOS:');
-        console.log('   • Abra a URL acima no navegador do seu celular');
-        console.log('   • Uma página será exibida com o QR code');
-        console.log('   • Escaneie o QR code usando outro celular com WhatsApp');
-        console.log('   • Em WhatsApp: Configurações → Aparelhos conectados → Conectar aparelho\n');
+        console.log('2️⃣  PRÓXIMOS PASSOS:');
+        console.log('   • Copie a URL acima');
+        console.log('   • Abra no navegador do seu celular');
+        console.log('   • O QR code aparecerá automaticamente');
+        console.log('   • Escaneie com outro celular (WhatsApp → Configurações → Aparelhos conectados)\n');
         console.log('='.repeat(80) + '\n');
         
         qrShown = true;
@@ -801,7 +871,6 @@ wppconnect.create({
   
   // Aguarda um pouco para a página carregar
   await delay(3000);
-  
   let isReallyLogged = false;
   try {
     // Tenta obter o nome do perfil - só funciona se autenticado
