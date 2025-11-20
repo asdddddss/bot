@@ -756,24 +756,25 @@ wppconnect.create({
   catchQR: (qrCode, asciiQR) => {
     if (!qrShown && qrCode) {
       console.log('\n' + '='.repeat(80));
-      console.log('✅ QR CODE CAPTURADO VIA CALLBACK');
-      console.log('='.repeat(80) + '\n');
+      console.log('✅ QR CODE CAPTURADO COM SUCESSO!');
+      console.log('='.repeat(80));
       try {
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
-        
-        // Armazenar dados do QR para servir via HTTP
         qrImageData = cleanData;
         
-        // Gerar QR code em Unicode - muito mais legível
-        console.log('📱 QR CODE ESCANEÁVEL (copie se precisar):\n');
-        QRCode.toString(cleanData, { type: 'terminal', width: 25, small: false }, (err, result) => {
-          if (!err && result) console.log(result);
-        });
-        console.log('\n🌐 OU ACESSE VIA NAVEGADOR:\n');
-        console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
-        console.log(`   👉 http://127.0.0.1:${QR_SERVER_PORT}`);
-        console.log('\n💡 Na VPS, substitua "localhost" pelo IP da máquina');
-        console.log('📱 Aponte a câmera do celular para qualquer uma das opções acima!\n');
+        console.log('\n🌟 COMO ESCANEAR:\n');
+        console.log('1️⃣  ACESO LOCAL (Seu computador):');
+        console.log(`   👉 http://localhost:${QR_SERVER_PORT}\n`);
+        
+        console.log('2️⃣  ACESSO NA VPS:');
+        console.log(`   👉 http://<SEU-IP-VPS>:${QR_SERVER_PORT}`);
+        console.log('   (Substitua <SEU-IP-VPS> pelo IP da sua VPS)\n');
+        
+        console.log('3️⃣  PRÓXIMOS PASSOS:');
+        console.log('   • Abra a URL acima no navegador do seu celular');
+        console.log('   • Uma página será exibida com o QR code');
+        console.log('   • Escaneie o QR code usando outro celular com WhatsApp');
+        console.log('   • Em WhatsApp: Configurações → Aparelhos conectados → Conectar aparelho\n');
         console.log('='.repeat(80) + '\n');
         
         qrShown = true;
