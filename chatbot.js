@@ -35,6 +35,7 @@ const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
 // ===== SERVIDOR HTTP PARA EXIBIR QR CODE =====
 const QR_SERVER_PORT = process.env.QR_SERVER_PORT ? Number(process.env.QR_SERVER_PORT) : 3000;
 let qrImageData = null;
+let qrScreenshot = null; // Screenshot do QR code do WhatsApp Web
 
 const qrServer = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
@@ -42,7 +43,7 @@ const qrServer = http.createServer((req, res) => {
 
   // Rota raiz: exibir página HTML com QR code
   if (pathname === '/' || pathname === '/qrcode') {
-    if (!qrImageData) {
+    if (!qrImageData && !qrScreenshot) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`
         <!DOCTYPE html>
@@ -73,6 +74,10 @@ const qrServer = http.createServer((req, res) => {
       return;
     }
 
+    // Usar screenshot do WhatsApp Web se disponível, senão usar imagem PNG
+    const hasScreenshot = qrScreenshot && qrScreenshot.length > 0;
+    const qrSrc = hasScreenshot ? '/qr-screenshot.png' : '/qr.png';
+
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <!DOCTYPE html>
@@ -83,11 +88,12 @@ const qrServer = http.createServer((req, res) => {
         <title>QR Code - WhatsApp Bot</title>
         <style>
           body { display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Segoe UI', Arial, sans-serif; }
-          .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); text-align: center; max-width: 500px; }
+          .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); text-align: center; max-width: 600px; }
           h1 { color: #333; margin: 0 0 10px 0; font-size: 28px; }
+          .badge { display: inline-block; background: #4CAF50; color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; margin-bottom: 20px; }
           p { color: #666; margin: 10px 0 30px 0; font-size: 16px; }
-          .qr-box { background: #f5f5f5; padding: 20px; border-radius: 10px; border: 2px solid #667eea; }
-          img { max-width: 100%; height: auto; }
+          .qr-box { background: #f5f5f5; padding: 20px; border-radius: 10px; border: 2px solid #667eea; overflow: auto; max-height: 600px; }
+          img { max-width: 100%; height: auto; border-radius: 5px; }
           .instructions { text-align: left; background: #f0f8ff; padding: 20px; border-radius: 10px; border-left: 4px solid #667eea; margin-top: 20px; }
           .instructions h2 { margin: 0 0 15px 0; color: #333; font-size: 18px; }
           .instructions ol { margin: 0; padding-left: 20px; }
@@ -98,10 +104,11 @@ const qrServer = http.createServer((req, res) => {
       <body>
         <div class="container">
           <h1>📱 QR Code do Bot</h1>
+          ${hasScreenshot ? '<div class="badge">✅ Screenshot do WhatsApp Web</div>' : ''}
           <p>Escaneie o código abaixo com seu celular</p>
           
           <div class="qr-box">
-            <img src="/qr.png" alt="QR Code">
+            <img src="${qrSrc}" alt="QR Code">
           </div>
           
           <div class="instructions">
@@ -121,6 +128,16 @@ const qrServer = http.createServer((req, res) => {
       </html>
     `);
   }
+  // Rota para servir screenshot do WhatsApp Web
+  else if (pathname === '/qr-screenshot.png') {
+    if (!qrScreenshot) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Screenshot not available yet');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    res.end(Buffer.from(qrScreenshot, 'base64'));
+  }
   // Rota para servir a imagem PNG do QR code
   else if (pathname === '/qr.png') {
     if (!qrImageData) {
@@ -133,13 +150,13 @@ const qrServer = http.createServer((req, res) => {
   }
   // Rota para servir JSON com info do QR
   else if (pathname === '/qr.json') {
-    if (!qrImageData) {
+    if (!qrImageData && !qrScreenshot) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'waiting', message: 'QR code not available yet' }));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ready', message: 'QR code is ready to scan' }));
+    res.end(JSON.stringify({ status: 'ready', message: 'QR code is ready to scan', hasScreenshot: !!qrScreenshot }));
   }
   else {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -546,6 +563,57 @@ async function decodeQRFromScreenshot(screenshotBase64) {
   }
 }
 
+// Função para capturar screenshot do QR code do WhatsApp Web
+async function captureQRScreenshot(page) {
+  try {
+    if (!page) return null;
+    
+    // Tenta encontrar o elemento QR code no DOM
+    const qrElement = await page.$('canvas[data-testid*="qr"], [data-testid*="qr"], canvas, div[class*="qr"]');
+    
+    if (qrElement) {
+      // Se encontrou, tira screenshot só do elemento
+      const screenshot = await qrElement.screenshot({ encoding: 'base64' });
+      if (screenshot && screenshot.length > 500) {
+        console.log('📸 Screenshot do QR code capturado via elemento!');
+        return screenshot;
+      }
+    }
+
+    // Se não encontrou o elemento, tira screenshot de uma região da página
+    // Tenta screenshots de diferentes regiões onde o QR pode estar
+    const regions = [
+      { x: 0, y: 0, width: 600, height: 600 },        // Canto superior esquerdo
+      { x: 100, y: 100, width: 500, height: 500 },    // Centro
+    ];
+
+    for (const region of regions) {
+      try {
+        const screenshot = await page.screenshot({ 
+          encoding: 'base64',
+          clip: region
+        });
+        
+        if (screenshot && screenshot.length > 500) {
+          // Verifica se a imagem não é toda branca (tem conteúdo)
+          const buffer = Buffer.from(screenshot, 'base64');
+          if (buffer.length > 1000) {
+            console.log('📸 Screenshot do QR code capturado com sucesso!');
+            return screenshot;
+          }
+        }
+      } catch (e) {
+        // Continua para próxima região
+      }
+    }
+
+    return null;
+  } catch (e) {
+    console.log('⚠️ Erro ao capturar screenshot do QR:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 // Função para capturar e exibir QR continuamente
 async function captureAndDisplayQR(client) {
   const maxAttempts = 600; // 10 minutos (600 * 1s)
@@ -595,11 +663,19 @@ async function captureAndDisplayQR(client) {
       // Se encontrou QR por qualquer método, exibe
       if ((qrData || qrText) && !qrShown) {
         console.log('\n' + '='.repeat(80));
-        console.log('📱 QR CODE ENCONTRADO! Exibindo no terminal...');
+        console.log('📱 QR CODE ENCONTRADO! Capturando screenshot...');
         console.log('='.repeat(80) + '\n');
+        
+        // Tentar capturar screenshot do QR code
+        const screenshot = await captureQRScreenshot(waPage);
+        if (screenshot) {
+          qrScreenshot = screenshot;
+          console.log('✅ Screenshot do WhatsApp Web capturado!\n');
+        }
         
         if (qrData) {
           const cleanData = qrData.data.replace(/^data:image\/png;base64,/, '');
+          qrImageData = cleanData; // Também salvar PNG alternativo
           try {
             const asciiQR = await new Promise((resolve) => {
               QRCode.toString(cleanData, { type: 'terminal', width: 15 }, (err, result) => {
@@ -615,7 +691,6 @@ async function captureAndDisplayQR(client) {
         } else if (qrText) {
           console.log('✅ QR Decodificado via screenshot!');
           console.log('Dados encontrados: ' + qrText.substring(0, 100) + '...\n');
-          // Tenta renderizar mesmo assim
           try {
             const asciiQR = await new Promise((resolve) => {
               QRCode.toString(qrText, { type: 'terminal', width: 15 }, (err, result) => {
@@ -631,10 +706,9 @@ async function captureAndDisplayQR(client) {
         }
 
         console.log('\n' + '='.repeat(80));
-        console.log('📸 INSTRUÇÕES:');
-        console.log('  1. Abra WhatsApp no CELULAR');
-        console.log('  2. Vá em: Configurações → Aparelhos conectados');
-        console.log('  3. Aponte a câmera do CELULAR para o QR acima e ESCANEIE');
+        console.log('🌐 ACESSE VIA HTTP:');
+        console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
+        console.log(`   👉 http://127.0.0.1:${QR_SERVER_PORT}`);
         console.log('='.repeat(80) + '\n');
         
         qrShown = true;
