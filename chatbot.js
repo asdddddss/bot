@@ -204,11 +204,42 @@ const contatosIniciados = new Map();
 // session name can be overridden with env WPP_SESSION to allow multiple copies
 let sessionName = process.env.WPP_SESSION || 'disparador';
 
-// Se nÃ£o houver tokens salvos, force uma sessÃ£o nova com timestamp para garantir QR fresco
-const tokenPath = path.join(__dirname, 'tokens', sessionName);
-if (!fs.existsSync(tokenPath)) {
-  console.log('âš ï¸ Nenhuma sessÃ£o autenticada encontrada. ForÃ§ando autenticaÃ§Ã£o nova...');
-  // Usar timestamp para garantir sessÃ£o Ãºnica = novo QR
+// Locate tokens directory and try to reuse an existing session folder.
+// Earlier logic forced a new sessionName with a timestamp when the simple
+// `tokens/<sessionName>` folder didn't exist which generated a new QR on
+// every restart. Instead, search for `tokens/<sessionName>*` and pick the
+// newest existing folder. If none found, create a new timestamped session.
+const tokensRoot = path.join(__dirname, 'tokens');
+try {
+  if (!fs.existsSync(tokensRoot)) fs.mkdirSync(tokensRoot, { recursive: true });
+  const entries = fs.readdirSync(tokensRoot).filter(n => n && n.indexOf('.') !== 0);
+  // prefer exact match first
+  let candidate = entries.find(n => n === sessionName);
+  if (!candidate) {
+    // find folders that start with the sessionName (e.g. 'disparador-auth-...')
+    const matches = entries.filter(n => n.startsWith(sessionName));
+    if (matches.length > 0) {
+      // pick the most recently modified folder
+      matches.sort((a, b) => {
+        const sa = fs.statSync(path.join(tokensRoot, a)).mtimeMs;
+        const sb = fs.statSync(path.join(tokensRoot, b)).mtimeMs;
+        return sb - sa;
+      });
+      candidate = matches[0];
+    }
+  }
+
+  if (candidate) {
+    sessionName = candidate;
+    console.log('â„¹ï¸ Reutilizando sessÃ£o existente:', sessionName);
+  } else {
+    // no existing tokens found; create new timestamped session folder name
+    sessionName = `${sessionName}-auth-${Date.now()}`;
+    console.log('â„¹ï¸ Nenhuma sessÃ£o encontrada â€” criando nova sessÃ£o:', sessionName);
+  }
+} catch (e) {
+  console.log('âš ï¸ Erro ao inspecionar a pasta de tokens:', e && e.message ? e.message : e);
+  // fallback to timestamped session to avoid failing the start
   sessionName = `${sessionName}-auth-${Date.now()}`;
 }
 
