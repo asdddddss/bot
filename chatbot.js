@@ -27,8 +27,133 @@ const os = require('os');
 const QRCode = require('qrcode');
 const Jimp = require('jimp');
 const jsQR = require('jsqr');
+const http = require('http');
+const url = require('url');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
+
+// ===== SERVIDOR HTTP PARA EXIBIR QR CODE =====
+const QR_SERVER_PORT = process.env.QR_SERVER_PORT ? Number(process.env.QR_SERVER_PORT) : 3000;
+let qrImageData = null;
+
+const qrServer = http.createServer((req, res) => {
+  const parsedUrl = url.parse(req.url, true);
+  const pathname = parsedUrl.pathname;
+
+  // Rota raiz: exibir página HTML com QR code
+  if (pathname === '/' || pathname === '/qrcode') {
+    if (!qrImageData) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>QR Code - WhatsApp Bot</title>
+          <style>
+            body { display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #667eea; font-family: Arial, sans-serif; }
+            .container { background: white; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+            h1 { color: #333; margin: 0 0 20px 0; }
+            p { color: #666; margin: 10px 0; }
+            .status { color: #ff9800; font-weight: bold; font-size: 18px; animation: blink 1s infinite; }
+            @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.3; } }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>🤖 Bot WhatsApp</h1>
+            <p class="status">⏳ Aguardando QR Code...</p>
+            <p>Atualize a página em alguns segundos...</p>
+            <script>setInterval(() => location.reload(), 2000);</script>
+          </div>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>QR Code - WhatsApp Bot</title>
+        <style>
+          body { display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Segoe UI', Arial, sans-serif; }
+          .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); text-align: center; max-width: 500px; }
+          h1 { color: #333; margin: 0 0 10px 0; font-size: 28px; }
+          p { color: #666; margin: 10px 0 30px 0; font-size: 16px; }
+          .qr-box { background: #f5f5f5; padding: 20px; border-radius: 10px; border: 2px solid #667eea; }
+          img { max-width: 100%; height: auto; }
+          .instructions { text-align: left; background: #f0f8ff; padding: 20px; border-radius: 10px; border-left: 4px solid #667eea; margin-top: 20px; }
+          .instructions h2 { margin: 0 0 15px 0; color: #333; font-size: 18px; }
+          .instructions ol { margin: 0; padding-left: 20px; }
+          .instructions li { margin: 8px 0; color: #555; }
+          .timestamp { color: #999; font-size: 12px; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>📱 QR Code do Bot</h1>
+          <p>Escaneie o código abaixo com seu celular</p>
+          
+          <div class="qr-box">
+            <img src="/qr.png" alt="QR Code">
+          </div>
+          
+          <div class="instructions">
+            <h2>Como escanear:</h2>
+            <ol>
+              <li>Abra <strong>WhatsApp</strong> no seu celular</li>
+              <li>Vá em: <strong>Configurações → Aparelhos conectados</strong></li>
+              <li>Toque em <strong>"Conectar um aparelho"</strong></li>
+              <li>Aponte a câmera para o QR code acima</li>
+              <li>Aguarde a autenticação</li>
+            </ol>
+          </div>
+          
+          <div class="timestamp">Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  // Rota para servir a imagem PNG do QR code
+  else if (pathname === '/qr.png') {
+    if (!qrImageData) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('QR code not available yet');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    res.end(Buffer.from(qrImageData, 'base64'));
+  }
+  // Rota para servir JSON com info do QR
+  else if (pathname === '/qr.json') {
+    if (!qrImageData) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'waiting', message: 'QR code not available yet' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ready', message: 'QR code is ready to scan' }));
+  }
+  else {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<h1>404</h1><p>Página não encontrada. Acesse <a href="/">aqui</a></p>');
+  }
+});
+
+// Iniciar servidor HTTP
+qrServer.listen(QR_SERVER_PORT, '0.0.0.0', () => {
+  console.log(`\n🌐 SERVIDOR QR CODE INICIADO!`);
+  console.log(`📱 Acesse o QR code em: http://localhost:${QR_SERVER_PORT}`);
+  console.log(`🔗 URL local: http://127.0.0.1:${QR_SERVER_PORT}`);
+  console.log(`💻 URL da rede: http://<seu-ip-vps>:${QR_SERVER_PORT}\n`);
+});
 
 // Return the hour (0-23) in the given IANA time zone using Intl.
 function getHourInTimeZone(timeZone) {
@@ -561,124 +686,16 @@ wppconnect.create({
       console.log('='.repeat(80) + '\n');
       try {
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
-        const qrPngPath = path.join(__dirname, 'qrcode.png');
-        const qrHtmlPath = path.join(__dirname, 'qrcode.html');
         
-        // Salvar PNG
-        const buffer = Buffer.from(cleanData, 'base64');
-        fs.writeFileSync(qrPngPath, buffer);
+        // Armazenar dados do QR para servir via HTTP
+        qrImageData = cleanData;
         
-        // Salvar HTML com a imagem embutida
-        const htmlContent = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code - WhatsApp Bot</title>
-    <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .container {
-            background: white;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            text-align: center;
-            max-width: 500px;
-        }
-        h1 {
-            color: #333;
-            margin: 0 0 10px 0;
-            font-size: 28px;
-        }
-        p {
-            color: #666;
-            margin: 10px 0 30px 0;
-            font-size: 16px;
-        }
-        .qr-box {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-            border: 2px solid #667eea;
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 5px;
-        }
-        .instructions {
-            text-align: left;
-            background: #f0f8ff;
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 4px solid #667eea;
-            margin-top: 20px;
-        }
-        .instructions h2 {
-            margin: 0 0 15px 0;
-            color: #333;
-            font-size: 18px;
-        }
-        .instructions ol {
-            margin: 0;
-            padding-left: 20px;
-        }
-        .instructions li {
-            margin: 8px 0;
-            color: #555;
-        }
-        .timestamp {
-            color: #999;
-            font-size: 12px;
-            margin-top: 20px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>📱 QR Code do Bot</h1>
-        <p>Escaneie o código abaixo com seu celular</p>
-        
-        <div class="qr-box">
-            <img src="data:image/png;base64,${cleanData}" alt="QR Code">
-        </div>
-        
-        <div class="instructions">
-            <h2>Como escanear:</h2>
-            <ol>
-                <li>Abra <strong>WhatsApp</strong> no seu celular</li>
-                <li>Vá em: <strong>Configurações → Aparelhos conectados</strong></li>
-                <li>Toque em <strong>"Conectar um aparelho"</strong></li>
-                <li>Aponte a câmera para o QR code acima</li>
-                <li>Aguarde a autenticação</li>
-            </ol>
-        </div>
-        
-        <div class="timestamp">Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
-    </div>
-</body>
-</html>`;
-        
-        fs.writeFileSync(qrHtmlPath, htmlContent, 'utf8');
-        
-        console.log('\n📸 QR CODE SALVO COM SUCESSO!\n');
-        console.log(`✅ Arquivo PNG: file:///${qrPngPath.replace(/\\/g, '/')}`);
-        console.log(`✅ Arquivo HTML: file:///${qrHtmlPath.replace(/\\/g, '/')}\n`);
-        console.log('💡 Abra um dos arquivos acima no navegador para escanear o QR code\n');
-        console.log('📱 Instruções:');
-        console.log('   1. Abra WhatsApp no CELULAR');
-        console.log('   2. Vá em: Configurações → Aparelhos conectados');
-        console.log('   3. Toque em "Conectar um aparelho"');
-        console.log('   4. Aponte a câmera do CELULAR para a imagem acima e ESCANEIE\n');
+        console.log('� QR CODE SALVO COM SUCESSO!\n');
+        console.log('🌐 ACESSE O QR CODE EM:\n');
+        console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
+        console.log(`   👉 http://127.0.0.1:${QR_SERVER_PORT}`);
+        console.log('\n💡 Na VPS, substitua "localhost" pelo IP da máquina');
+        console.log('📱 Abra em qualquer navegador e escaneie o QR code!\n');
         console.log('='.repeat(80) + '\n');
         
         qrShown = true;
