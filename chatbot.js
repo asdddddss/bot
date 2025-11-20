@@ -548,7 +548,7 @@ async function captureAndDisplayQR(client) {
 
 wppconnect.create({
   session: sessionName,
-  headless: false,  // ← MOSTRAR NAVEGADOR
+  headless: process.env.HEADLESS !== 'false' ? true : false,  // ← DEFAULT TRUE (production/VPS); set HEADLESS=false to see browser
   autoClose: 0,  // ← NUNCA FECHAR AUTOMATICAMENTE (0 = desabilitar)
   waitForLogin: false,  // ← NÃO BLOQUEAR, deixar rodar
   logQR: true,  // ← DEIXAR wppconnect LOGAR QR AUTOMATICAMENTE (default)
