@@ -557,21 +557,133 @@ wppconnect.create({
   catchQR: (qrCode, asciiQR) => {
     if (!qrShown && qrCode) {
       console.log('\n' + '='.repeat(80));
-      console.log('� QR CODE CAPTURADO VIA CALLBACK');
+      console.log('✅ QR CODE CAPTURADO VIA CALLBACK');
       console.log('='.repeat(80) + '\n');
       try {
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
-        QRCode.toString(cleanData, { type: 'terminal', width: 15 }, (err, result) => {
-          if (!err && result) {
-            console.log(result);
-          } else if (asciiQR) {
-            console.log(asciiQR);
-          }
-          console.log('\n' + '='.repeat(80) + '\n');
-          qrShown = true;
-        });
+        const qrPngPath = path.join(__dirname, 'qrcode.png');
+        const qrHtmlPath = path.join(__dirname, 'qrcode.html');
+        
+        // Salvar PNG
+        const buffer = Buffer.from(cleanData, 'base64');
+        fs.writeFileSync(qrPngPath, buffer);
+        
+        // Salvar HTML com a imagem embutida
+        const htmlContent = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code - WhatsApp Bot</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 500px;
+        }
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            margin: 10px 0 30px 0;
+            font-size: 16px;
+        }
+        .qr-box {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 2px solid #667eea;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+        }
+        .instructions {
+            text-align: left;
+            background: #f0f8ff;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            margin-top: 20px;
+        }
+        .instructions h2 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 18px;
+        }
+        .instructions ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 8px 0;
+            color: #555;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 QR Code do Bot</h1>
+        <p>Escaneie o código abaixo com seu celular</p>
+        
+        <div class="qr-box">
+            <img src="data:image/png;base64,${cleanData}" alt="QR Code">
+        </div>
+        
+        <div class="instructions">
+            <h2>Como escanear:</h2>
+            <ol>
+                <li>Abra <strong>WhatsApp</strong> no seu celular</li>
+                <li>Vá em: <strong>Configurações → Aparelhos conectados</strong></li>
+                <li>Toque em <strong>"Conectar um aparelho"</strong></li>
+                <li>Aponte a câmera para o QR code acima</li>
+                <li>Aguarde a autenticação</li>
+            </ol>
+        </div>
+        
+        <div class="timestamp">Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
+    </div>
+</body>
+</html>`;
+        
+        fs.writeFileSync(qrHtmlPath, htmlContent, 'utf8');
+        
+        console.log('\n📸 QR CODE SALVO COM SUCESSO!\n');
+        console.log(`✅ Arquivo PNG: file:///${qrPngPath.replace(/\\/g, '/')}`);
+        console.log(`✅ Arquivo HTML: file:///${qrHtmlPath.replace(/\\/g, '/')}\n`);
+        console.log('💡 Abra um dos arquivos acima no navegador para escanear o QR code\n');
+        console.log('📱 Instruções:');
+        console.log('   1. Abra WhatsApp no CELULAR');
+        console.log('   2. Vá em: Configurações → Aparelhos conectados');
+        console.log('   3. Toque em "Conectar um aparelho"');
+        console.log('   4. Aponte a câmera do CELULAR para a imagem acima e ESCANEIE\n');
+        console.log('='.repeat(80) + '\n');
+        
+        qrShown = true;
       } catch (e) {
-        if (asciiQR) console.log(asciiQR);
+        console.log('⚠️ Erro ao processar QR code:', e && e.message ? e.message : e);
         qrShown = true;
       }
     }
