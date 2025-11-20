@@ -631,16 +631,6 @@ wppconnect.create({
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
         qrImageData = cleanData;
         
-        // Upload para o Imgur em background (não bloquear)
-        uploadQRToImgur(qrCode).then(link => {
-          if (link) {
-            console.log('✅ Link do Imgur gerado:');
-            console.log(`   👉 ${link}\n`);
-          }
-        }).catch(err => {
-          // Silenciosamente ignore erros do Imgur
-        });
-        
         console.log('\n🌟 OPÇÕES PARA ESCANEAR:\n');
         console.log('1️⃣  ACESO NO NAVEGADOR (RECOMENDADO):');
         console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
