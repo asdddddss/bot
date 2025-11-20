@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code - WhatsApp Bot</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 500px;
+        }
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            margin: 10px 0 30px 0;
+            font-size: 16px;
+        }
+        .qr-box {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 2px solid #667eea;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+        }
+        .instructions {
+            text-align: left;
+            background: #f0f8ff;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            margin-top: 20px;
+        }
+        .instructions h2 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 18px;
+        }
+        .instructions ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 8px 0;
+            color: #555;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 QR Code do Bot</h1>
+        <p>Escaneie o código abaixo com seu celular</p>
+        
+        <div class="qr-box">
+            <img src="data:image/png;base64,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" alt="QR Code">
+        </div>
+        
+        <div class="instructions">
+            <h2>Como escanear:</h2>
+            <ol>
+                <li>Abra <strong>WhatsApp</strong> no seu celular</li>
+                <li>Vá em: <strong>Configurações → Aparelhos conectados</strong></li>
+                <li>Toque em <strong>"Conectar um aparelho"</strong></li>
+                <li>Aponte a câmera para o QR code acima</li>
+                <li>Aguarde a autenticação</li>
+            </ol>
+        </div>
+        
+        <div class="timestamp">Gerado em: 19/11/2025, 23:03:34</div>
+    </div>
+</body>
+</html>

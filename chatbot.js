@@ -764,12 +764,16 @@ wppconnect.create({
         // Armazenar dados do QR para servir via HTTP
         qrImageData = cleanData;
         
-        console.log('� QR CODE SALVO COM SUCESSO!\n');
-        console.log('🌐 ACESSE O QR CODE EM:\n');
+        // Gerar QR code em Unicode - muito mais legível
+        console.log('📱 QR CODE ESCANEÁVEL (copie se precisar):\n');
+        QRCode.toString(cleanData, { type: 'terminal', width: 25, small: false }, (err, result) => {
+          if (!err && result) console.log(result);
+        });
+        console.log('\n🌐 OU ACESSE VIA NAVEGADOR:\n');
         console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
         console.log(`   👉 http://127.0.0.1:${QR_SERVER_PORT}`);
         console.log('\n💡 Na VPS, substitua "localhost" pelo IP da máquina');
-        console.log('📱 Abra em qualquer navegador e escaneie o QR code!\n');
+        console.log('📱 Aponte a câmera do celular para qualquer uma das opções acima!\n');
         console.log('='.repeat(80) + '\n');
         
         qrShown = true;
