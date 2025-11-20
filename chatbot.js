@@ -189,9 +189,8 @@ const qrServer = http.createServer((req, res) => {
 // Iniciar servidor HTTP
 qrServer.listen(QR_SERVER_PORT, '0.0.0.0', () => {
   console.log(`\n🌐 SERVIDOR QR CODE INICIADO!`);
-  console.log(`📱 Acesse o QR code em: http://localhost:${QR_SERVER_PORT}`);
-  console.log(`🔗 URL local: http://127.0.0.1:${QR_SERVER_PORT}`);
-  console.log(`💻 URL da rede: http://<seu-ip-vps>:${QR_SERVER_PORT}\n`);
+  console.log(`📱 Acesse: http://localhost:${QR_SERVER_PORT}`);
+  console.log(`🔗 URL local: http://127.0.0.1:${QR_SERVER_PORT}\n`);
 });
 
 // Return the hour (0-23) in the given IANA time zone using Intl.
@@ -618,27 +617,30 @@ wppconnect.create({
   disableWelcome: false,
   protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
   catchQR: (qrCode, asciiQR) => {
-    console.log('🔔 catchQR callback acionado! qrCode recebido:', !!qrCode);
     if (!qrShown && qrCode) {
-      console.log('\n' + '='.repeat(80));
-      console.log('✅ QR CODE CAPTURADO COM SUCESSO!');
-      console.log('='.repeat(80));
       try {
         const cleanData = qrCode.replace(/^data:image\/png;base64,/, '');
         qrImageData = cleanData;
-        console.log('✅ QR Image Data armazenado com', cleanData.length, 'bytes');
         
-        console.log('\n🌟 OPÇÕES PARA ESCANEAR:\n');
-        console.log('1️⃣  ACESO NO NAVEGADOR (RECOMENDADO):');
-        console.log(`   👉 http://localhost:${QR_SERVER_PORT}`);
-        console.log(`   👉 http://<SEU-IP-VPS>:${QR_SERVER_PORT}\n`);
-        
-        console.log('2️⃣  PRÓXIMOS PASSOS:');
-        console.log('   • Copie a URL acima');
-        console.log('   • Abra no navegador do seu celular');
-        console.log('   • O QR code aparecerá automaticamente');
-        console.log('   • Escaneie com outro celular (WhatsApp → Configurações → Aparelhos conectados)\n');
-        console.log('='.repeat(80) + '\n');
+        // Exibir link de forma clara e prominent no terminal
+        console.log('\n\n');
+        console.log('█'.repeat(80));
+        console.log('█' + ' '.repeat(78) + '█');
+        console.log('█' + '✅ QR CODE CAPTURADO COM SUCESSO!'.padStart(56).padEnd(78) + '█');
+        console.log('█' + ' '.repeat(78) + '█');
+        console.log('█' + ' '.repeat(78) + '█');
+        console.log('█' + '🔗 ACESSE:'.padEnd(78) + '█');
+        console.log('█' + ` http://localhost:${QR_SERVER_PORT}`.padEnd(78) + '█');
+        console.log('█' + ' '.repeat(78) + '█');
+        console.log('█' + '� INSTRUÇÕES:'.padEnd(78) + '█');
+        console.log('█' + '1. Copie o link acima'.padEnd(78) + '█');
+        console.log('█' + '2. Abra no navegador do seu celular'.padEnd(78) + '█');
+        console.log('█' + '3. Vá no WhatsApp → Configurações → Aparelhos conectados'.padEnd(78) + '█');
+        console.log('█' + '4. Clique em "Conectar um aparelho"'.padEnd(78) + '█');
+        console.log('█' + '5. Aponte a câmera para o QR code na página'.padEnd(78) + '█');
+        console.log('█' + ' '.repeat(78) + '█');
+        console.log('█'.repeat(80));
+        console.log('\n');
         
         qrShown = true;
       } catch (e) {
