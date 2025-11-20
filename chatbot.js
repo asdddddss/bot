@@ -1,21 +1,4 @@
 // (agendamento do reprocessamento é criado dentro do escopo do client)
-// Janela de horário para envio da primeira mensagem (horário local do servidor)
-function isWithinSendWindow() {
-  // Use the configured target timezone to determine the current hour
-  const hour = getHourInTimeZone(TARGET_TIMEZONE);
-  // Start sending only from 13:00 until before 18:00 in the target timezone
-  return hour >= 13 && hour < 18; // entre 13:00 (inclusive) e 18:00 (exclusive)
-}
-
-// Helpers to wait until a specific hour (local server time)
-function msUntilNextHour(targetHour) {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(targetHour, 0, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
-  return next - now;
-}
-
 const wppconnect = require('@wppconnect-team/wppconnect');
 const path = require('path');
 // Always load contatos from the same folder as this script to avoid mixing copies
@@ -29,55 +12,12 @@ const Jimp = require('jimp');
 const jsQR = require('jsqr');
 const http = require('http');
 const url = require('url');
-const axios = require('axios');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
 
-// ===== CONFIGURAÇÃO DO IMGUR =====
-const IMGUR_CLIENT_ID = process.env.IMGUR_CLIENT_ID || '8f72e7c2e96c5d3'; // Client ID anônimo (limite: 1250/hora)
-let lastImgurUrl = null;
-
-// Função para fazer upload da imagem QR para o Imgur
-async function uploadQRToImgur(base64ImageData) {
-  try {
-    if (!base64ImageData) {
-      console.log('⚠️ Nenhuma imagem para fazer upload');
-      return null;
-    }
-
-    // Remover prefixo data:image se existir
-    const cleanData = base64ImageData.replace(/^data:image\/png;base64,/, '');
-    
-    console.log('⏳ Uploadando QR code para o Imgur...');
-    
-    // Fazer upload usando axios
-    const response = await axios.post('https://api.imgur.com/3/image', {
-      image: cleanData,
-      type: 'base64'
-    }, {
-      headers: {
-        'Authorization': `Client-ID ${IMGUR_CLIENT_ID}`
-      }
-    });
-
-    if (response.data.success && response.data.data && response.data.data.link) {
-      lastImgurUrl = response.data.data.link;
-      console.log('✅ QR Code enviado com sucesso para o Imgur!');
-      console.log(`🌐 Link: ${lastImgurUrl}`);
-      return lastImgurUrl;
-    } else {
-      throw new Error('Resposta inválida do Imgur');
-    }
-  } catch (e) {
-    console.log('⚠️ Erro ao fazer upload para o Imgur:', e && e.message ? e.message : e);
-    return null;
-  }
-}
-
 // ===== SERVIDOR HTTP PARA EXIBIR QR CODE =====
 const QR_SERVER_PORT = process.env.QR_SERVER_PORT ? Number(process.env.QR_SERVER_PORT) : 3000;
-let qrImageData = null;
-let qrScreenshot = null; // Screenshot do QR code do WhatsApp Web
+let qrImageData = null; // Base64 PNG do QR code
 
 const qrServer = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
@@ -85,7 +25,7 @@ const qrServer = http.createServer((req, res) => {
 
   // Rota raiz: exibir página HTML com QR code
   if (pathname === '/' || pathname === '/qrcode') {
-    if (!qrImageData && !qrScreenshot) {
+    if (!qrImageData) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`
         <!DOCTYPE html>
@@ -116,10 +56,7 @@ const qrServer = http.createServer((req, res) => {
       return;
     }
 
-    // Usar screenshot do WhatsApp Web se disponível, senão usar imagem PNG
-    const hasScreenshot = qrScreenshot && qrScreenshot.length > 0;
-    const qrSrc = hasScreenshot ? '/qr-screenshot.png' : '/qr.png';
-
+    // Mostrar QR code com interface limpa
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <!DOCTYPE html>
@@ -129,77 +66,104 @@ const qrServer = http.createServer((req, res) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>QR Code - WhatsApp Bot</title>
         <style>
-          body { display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Segoe UI', Arial, sans-serif; }
-          .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); text-align: center; max-width: 600px; }
-          h1 { color: #333; margin: 0 0 10px 0; font-size: 28px; }
-          .badge { display: inline-block; background: #4CAF50; color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; margin-bottom: 20px; }
-          p { color: #666; margin: 10px 0 30px 0; font-size: 16px; }
-          .qr-box { background: #f5f5f5; padding: 20px; border-radius: 10px; border: 2px solid #667eea; overflow: auto; max-height: 600px; }
-          img { max-width: 100%; height: auto; border-radius: 5px; }
-          .instructions { text-align: left; background: #f0f8ff; padding: 20px; border-radius: 10px; border-left: 4px solid #667eea; margin-top: 20px; }
-          .instructions h2 { margin: 0 0 15px 0; color: #333; font-size: 18px; }
-          .instructions ol { margin: 0; padding-left: 20px; }
-          .instructions li { margin: 8px 0; color: #555; }
-          .timestamp { color: #999; font-size: 12px; margin-top: 20px; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            font-family: 'Segoe UI', Arial, sans-serif;
+            padding: 20px;
+          }
+          .container { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 20px; 
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); 
+            text-align: center; 
+            max-width: 500px;
+          }
+          h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
+          .badge { 
+            display: inline-block; 
+            background: #4CAF50; 
+            color: white; 
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            font-size: 13px; 
+            margin-bottom: 20px;
+          }
+          p { color: #666; margin: 10px 0; }
+          .qr-box { 
+            background: #f5f5f5; 
+            padding: 30px 20px; 
+            border-radius: 15px; 
+            border: 3px solid #667eea; 
+            margin: 30px 0;
+          }
+          img { 
+            max-width: 100%; 
+            height: auto; 
+            border-radius: 5px;
+            image-rendering: pixelated;
+          }
+          .instructions { 
+            text-align: left; 
+            background: #f0f8ff; 
+            padding: 20px; 
+            border-radius: 10px; 
+            border-left: 4px solid #667eea; 
+            margin-top: 20px;
+          }
+          .instructions h3 { 
+            margin: 0 0 15px 0; 
+            color: #333; 
+            font-size: 16px;
+          }
+          .instructions ol { 
+            margin: 0; 
+            padding-left: 20px;
+          }
+          .instructions li { 
+            margin: 8px 0; 
+            color: #555;
+            font-size: 14px;
+          }
+          .timestamp { 
+            color: #999; 
+            font-size: 12px; 
+            margin-top: 20px;
+          }
+          .success { color: #4CAF50; font-weight: bold; }
         </style>
       </head>
       <body>
         <div class="container">
-          <h1>📱 QR Code do Bot</h1>
-          ${hasScreenshot ? '<div class="badge">✅ Screenshot do WhatsApp Web</div>' : ''}
-          <p>Escaneie o código abaixo com seu celular</p>
+          <h1>📱 QR Code</h1>
+          <div class="badge">✅ Pronto para Escanear</div>
+          <p style="color: #666; margin: 15px 0;">Aponte a câmera do seu celular para o código abaixo</p>
           
           <div class="qr-box">
-            <img src="${qrSrc}" alt="QR Code">
+            <img src="/qr.png" alt="QR Code" style="width: 280px; height: 280px;">
           </div>
           
-          ${lastImgurUrl ? `
-            <div style="background: #fffbea; padding: 20px; border-radius: 10px; border-left: 4px solid #ffc107; margin-top: 20px; text-align: left;">
-              <h3 style="margin: 0 0 10px 0; color: #333;">🌐 Link do Imgur (compartilhável):</h3>
-              <p style="margin: 0; word-break: break-all;">
-                <a href="${lastImgurUrl}" target="_blank" style="color: #667eea; text-decoration: none; font-weight: bold;">
-                  ${lastImgurUrl}
-                </a>
-              </p>
-            </div>
-          ` : `
-            <div style="background: #f5f5f5; padding: 15px; border-radius: 10px; margin-top: 20px; color: #999;">
-              ⏳ Gerando link do Imgur...
-            </div>
-          `}
-          
           <div class="instructions">
-            <h2>Como escanear:</h2>
+            <h3>🎯 Como conectar:</h3>
             <ol>
               <li>Abra <strong>WhatsApp</strong> no seu celular</li>
-              <li>Vá em: <strong>Configurações → Aparelhos conectados</strong></li>
-              <li>Toque em <strong>"Conectar um aparelho"</strong></li>
-              <li>Aponte a câmera para o QR code acima</li>
-              <li>Aguarde a autenticação</li>
+              <li>Vá em <strong>⋮ (Mais) → Aparelhos conectados</strong></li>
+              <li>Toque em <strong>Conectar um aparelho</strong></li>
+              <li>Aponte para o QR code acima</li>
+              <li>Pronto! Você está conectado</li>
             </ol>
           </div>
           
           <div class="timestamp">Gerado em: ${new Date().toLocaleString('pt-BR')}</div>
         </div>
-        <script>
-          // Auto-refresh se o Imgur ainda não foi carregado
-          if (!document.querySelector('a[href*="imgur"]')) {
-            setTimeout(() => location.reload(), 3000);
-          }
-        </script>
       </body>
       </html>
     `);
-  }
-  // Rota para servir screenshot do WhatsApp Web
-  else if (pathname === '/qr-screenshot.png') {
-    if (!qrScreenshot) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Screenshot not available yet');
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': 'image/png' });
-    res.end(Buffer.from(qrScreenshot, 'base64'));
   }
   // Rota para servir a imagem PNG do QR code
   else if (pathname === '/qr.png') {
@@ -211,19 +175,19 @@ const qrServer = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'image/png' });
     res.end(Buffer.from(qrImageData, 'base64'));
   }
-  // Rota para servir JSON com info do QR
-  else if (pathname === '/qr.json') {
-    if (!qrImageData && !qrScreenshot) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'waiting', message: 'QR code not available yet' }));
-      return;
-    }
+  // Rota JSON para debugging
+  else if (pathname === '/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ready', message: 'QR code is ready to scan', hasScreenshot: !!qrScreenshot }));
+    res.end(JSON.stringify({
+      status: 'running',
+      qr_ready: !!qrImageData,
+      timestamp: new Date().toISOString()
+    }, null, 2));
   }
+  // 404
   else {
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<h1>404</h1><p>Página não encontrada. Acesse <a href="/">aqui</a></p>');
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
   }
 });
 
@@ -249,6 +213,11 @@ function getHourInTimeZone(timeZone) {
   return new Date().getHours();
 }
 
+// Helper: delay for async/await
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Wait until the send window opens in the TARGET_TIMEZONE by polling every minute.
 async function waitUntilSendWindow() {
   while (!isWithinSendWindow()) {
@@ -258,193 +227,30 @@ async function waitUntilSendWindow() {
   }
 }
 
-// Configuráveis (podem ser sobrescritas via variáveis de ambiente)
-const FUZZY_SIMILARITY_THRESHOLD = process.env.FUZZY_SIMILARITY_THRESHOLD ? Number(process.env.FUZZY_SIMILARITY_THRESHOLD) : 0.65;
-const TOKEN_MIN_LENGTH = process.env.TOKEN_MIN_LENGTH ? Number(process.env.TOKEN_MIN_LENGTH) : 3;
-// Configuráveis (podem ser sobrescritas via variáveis de ambiente)
-const LAST_N = process.env.LAST_N ? Number(process.env.LAST_N) : 8;
-const MAX_OPA = process.env.MAX_OPA ? Number(process.env.MAX_OPA) : 300; // Limite global de envios 'opa'
-const INDEX_REFRESH_INTERVAL_MS = process.env.INDEX_REFRESH_INTERVAL_MS ? Number(process.env.INDEX_REFRESH_INTERVAL_MS) : (2 * 60 * 1000);
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// Janela de horário para envio da primeira mensagem (horário local do servidor)
+function isWithinSendWindow() {
+  // Use the configured target timezone to determine the current hour
+  const hour = getHourInTimeZone(TARGET_TIMEZONE);
+  // Start sending only from 13:00 until before 18:00 in the target timezone
+  return hour >= 13 && hour < 18; // entre 13:00 (inclusive) e 18:00 (exclusive)
 }
 
-function randomDelay(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function normalizarNomeContato(contato) {
-  if (contato.firstName || contato.middleName || contato.lastName) {
-    return [contato.firstName || '', contato.middleName || '', contato.lastName || '']
-      .join(' ').replace(/ +/g, ' ').trim();
-  }
-  return contato.nome ? contato.nome.replace(/ +/g, ' ').trim() : '';
-}
-
-function removerAcentos(str) {
-  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-// Normaliza telefones removendo símbolos e garantindo código de país (padrão BR = 55)
-const DEFAULT_COUNTRY_CODE = process.env.DEFAULT_COUNTRY_CODE || '55';
-function normalizePhone(num) {
-  if (!num) return '';
-  let s = String(num).replace(/\D/g, '');
-  if (!s) return '';
-  // If it already starts with the country code, keep as-is
-  if (s.startsWith(DEFAULT_COUNTRY_CODE)) return s;
-  // Heuristic: local BR numbers are usually 10 or 11 digits; prefix country code
-  if (s.length === 10 || s.length === 11) return DEFAULT_COUNTRY_CODE + s;
-  // Otherwise return cleaned digits (best-effort)
-  return s;
-}
-
-// Levenshtein distance (iterative) for small strings
-function levenshtein(a, b) {
-  if (!a || !b) return (a || b) ? Math.max((a||'').length, (b||'').length) : 0;
-  const m = a.length, n = b.length;
-  const dp = Array(n + 1).fill(0).map((_, i) => i);
-  for (let i = 1; i <= m; i++) {
-    let prev = dp[0]; dp[0] = i;
-    for (let j = 1; j <= n; j++) {
-      const cur = dp[j];
-      const cost = a[i-1] === b[j-1] ? 0 : 1;
-      dp[j] = Math.min(prev + cost, dp[j] + 1, dp[j-1] + 1);
-      prev = cur;
-    }
-  }
-  return dp[n];
-}
-
-// fuzzy comparison: token overlap + normalized Levenshtein threshold
-function fuzzyMatch(nameA, nameB) {
-  if (!nameA || !nameB) return false;
-  const a = removerAcentos(nameA.toLowerCase().replace(/ +/g, ' ').trim());
-  const b = removerAcentos(nameB.toLowerCase().replace(/ +/g, ' ').trim());
-  if (a === b) return true;
-  // token intersection
-  const ta = a.split(' ').filter(t => t.length >= TOKEN_MIN_LENGTH);
-  const tb = b.split(' ').filter(t => t.length >= TOKEN_MIN_LENGTH);
-  const inter = ta.filter(t => tb.some(x => x.includes(t) || t.includes(x)));
-  if (inter.length >= 2) return true;
-  // normalized levenshtein similarity
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return true;
-  const dist = levenshtein(a, b);
-  const similarity = 1 - (dist / maxLen);
-  return similarity >= FUZZY_SIMILARITY_THRESHOLD; // threshold
-}
-
-// Normaliza diferentes formatos de id de chat para uma string comparável com msg.from
-function normalizeChatId(id) {
-  if (!id) return '';
-  if (typeof id === 'string') return id;
-  if (typeof id === 'object') {
-    // wppconnect/wa-js sometimes fornece { _serialized: '5511...@c.us' } ou { user, server }
-    if (id._serialized) return id._serialized;
-    if (id.id) return id.id;
-    if (id.user && id.server) return `${id.user}@${id.server}`;
-    if (id.user) return `${id.user}@c.us`;
-  }
+function saveFound(evt) {
   try {
-    return JSON.stringify(id);
-  } catch (e) {
-    return String(id);
-  }
-}
-
-// Heurística para identificar se uma mensagem recebida parece ser resposta humana
-function isLikelyHumanMessage(msg) {
-  try {
-    if (!msg) return false;
-    // ignore notifications and system types early
-    if (msg.isNotification || msg.isStatus || msg.isBot) return false;
-    // Treat voice notes (ptt) as human. For other media, require a caption/body to consider human.
-    if (msg.type === 'ptt') return true;
-    if (msg.isMedia || (msg.type && !['chat','text','status'].includes(msg.type))) {
-      const possibleText = (msg.caption || msg.body || '').toString().trim();
-      if (!possibleText) {
-        if (process.env.WPP_DEBUG_MATCH) console.log('🔎 isLikelyHumanMessage: media without caption — treat as not human');
-        return false;
-      }
-      // fall through to textual heuristics using possibleText
-    }
-    const body = ((msg.body || msg.caption) ? String(msg.body || msg.caption) : '').toString().trim();
-    if (!body) return false;
-    const lower = body.toLowerCase();
-    // common auto-reply phrases to ignore
-    const autoPatterns = ['mensagem automática', 'auto-reply', 'auto reply', 'resposta automática', 'estou fora', 'horário de atendimento', 'au', 'serviço', 'mensagem de ausência'];
-    for (const p of autoPatterns) if (lower.includes(p)) return false;
-    // require at least one alphabetic character (not only numbers or punctuation)
-    if (!(/[a-zA-ZÀ-ÿ]/.test(body))) return false;
-    // if short (1 char) and not media, likely not a meaningful human reply
-    if (body.length < 2) return false;
-    return true;
-  } catch (e) { return false; }
-}
-
-// Checa se já existe um chat aberto para o id informado (usa getAllChats no momento)
-async function chatExists(client, candidateId) {
-  if (!client || !candidateId) return false;
-  try {
-    // prefer listChats (newer API); fallback para getAllChats se não existir
-    // Simple in-memory cache to avoid calling the API repeatedly in short bursts
-    if (!client._cachedChats) client._cachedChats = { ts: 0, data: [] };
-    const CACHE_TTL = 30 * 1000; // 30 seconds
-    const now = Date.now();
-    if (!client._cachedChats.data || (now - client._cachedChats.ts) > CACHE_TTL) {
-      client._cachedChats.data = await (client.listChats ? client.listChats() : (client.getAllChats ? client.getAllChats() : []));
-      client._cachedChats.ts = now;
-    }
-    const allChats = client._cachedChats.data || [];
-    const target = normalizeChatId(candidateId);
-    const targetDigits = (String(target).match(/\d+/g) || []).join('');
-
-    for (const ch of allChats) {
-      const chId = normalizeChatId(ch.id);
-      if (!chId) continue;
-      if (chId === target) return true; // exact match
-      // compare by digits: last 8 digits match is a strong signal
-      const chDigits = (String(chId).match(/\d+/g) || []).join('');
-      if (targetDigits && chDigits) {
-        const lastN = 8;
-        const a = chDigits.slice(-lastN);
-        const b = targetDigits.slice(-lastN);
-        if (a === b) {
-          if (process.env.WPP_DEBUG_MATCH) console.log(`🔍 Partial chat match by last${lastN} digits: ${chId} ~ ${target}`);
-          return true;
-        }
+    let arr = [];
+    if (fs.existsSync(foundViaUiPath)) {
+      const raw = fs.readFileSync(foundViaUiPath, 'utf8');
+      if (raw && raw.trim()) {
+        try { arr = JSON.parse(raw); } catch (e) { arr = []; }
       }
     }
-    return false;
-  } catch (e) {
-    console.log('⚠️ Erro ao checar chats abertos:', e && e.message ? e.message : e);
-    return false;
-  }
+    arr.push(evt);
+    fs.writeFileSync(foundViaUiPath, JSON.stringify(arr, null, 2), 'utf8');
+  } catch (e) { /* ignore logging failures */ }
 }
 
-// UI search: simulate a human typing the contact name into the WhatsApp search box
-// Tolerant to case/accent differences and uses fuzzyMatch as fallback.
-// Logs each successful or attempted find to found_via_ui.json for audit.
-async function uiFindContactByExactName(client, displayName) {
-  if (!client || !client.pupPage || !displayName) return null;
-  // per-day audit file: found_via_ui_YYYY-MM-DD.json
-  const today = new Date().toISOString().slice(0, 10);
-  const foundViaUiPath = path.join(__dirname, `found_via_ui_${today}.json`);
-  function saveFound(evt) {
-    try {
-      let arr = [];
-      if (fs.existsSync(foundViaUiPath)) {
-        const raw = fs.readFileSync(foundViaUiPath, 'utf8');
-        if (raw && raw.trim()) {
-          try { arr = JSON.parse(raw); } catch (e) { arr = []; }
-        }
-      }
-      arr.push(evt);
-      fs.writeFileSync(foundViaUiPath, JSON.stringify(arr, null, 2), 'utf8');
-    } catch (e) { /* ignore logging failures */ }
-  }
+// Função para buscar contato por nome usando a barra de pesquisa
+async function searchContactByName(client, displayName, contatoMap) {
   try {
     const page = client.pupPage;
     const searchSelector = 'div[title="Procurar ou começar uma nova conversa"]';
