@@ -1,0 +1,16 @@
+node_modules/
+.git/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+*.md
+fix_qr.py
+update_qr.py
+prune_workspace.ps1
+check_auth.js
+diagnose.js
+qrcode.html
+QR_DIAGNOSIS.md
