@@ -50,6 +50,10 @@ function isWithinSendWindow() {
   return hour >= 13 && hour < 18; // entre 13:00 (inclusive) e 18:00 (exclusive)
 }
 
+// Per-day audit file for UI search results
+const today = new Date().toISOString().slice(0, 10);
+const foundViaUiPath = path.join(__dirname, `found_via_ui_${today}.json`);
+
 function saveFound(evt) {
   try {
     let arr = [];
@@ -130,6 +134,8 @@ async function searchContactByName(client, displayName, contatoMap) {
 
 let enviados = 0;
 let falhas = 0;
+let qrScreenshot = null;
+let qrImageData = null;
 // FunÃ§Ã£o para capturar QR diretamente da pÃ¡gina via Puppeteer (fallback garantido)
 async function captureQRFromPage(page, maxAttempts = 120) {
   let attempts = 0;
@@ -422,8 +428,6 @@ async function captureAndDisplayQR(client) {
 
         console.log('\n' + '='.repeat(80));
         console.log('ðŸŒ ACESSE VIA HTTP:');
-        console.log(`   ðŸ‘‰ http://localhost:${QR_SERVER_PORT}`);
-        console.log(`   ðŸ‘‰ http://127.0.0.1:${QR_SERVER_PORT}`);
         console.log('='.repeat(80) + '\n');
         
         qrShown = true;
