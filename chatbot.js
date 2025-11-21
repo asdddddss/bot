@@ -136,7 +136,15 @@ let enviados = 0;
 let falhas = 0;
 let qrScreenshot = null;
 let qrImageData = null;
-// FunÃ§Ã£o para capturar QR diretamente da pÃ¡gina via Puppeteer (fallback garantido)
+
+// Função para buscar contato via UI (simula digitação na barra de pesquisa)
+async function uiFindContactByExactName(client, displayName) {
+  // Placeholder: retorna null para deixar o código continuar com outros métodos de busca
+  // Esta função seria mais complexa caso necessária
+  return null;
+}
+
+// Função para capturar QR diretamente da página via Puppeteer (fallback garantido)
 async function captureQRFromPage(page, maxAttempts = 120) {
   let attempts = 0;
   while (attempts < maxAttempts) {
