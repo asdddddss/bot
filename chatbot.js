@@ -7,9 +7,6 @@ const contatosData = require(path.join(__dirname, 'contatos_filtrados.json'));
 const contatos = Array.isArray(contatosData) ? contatosData : (contatosData && Array.isArray(contatosData.contatos) ? contatosData.contatos : []);
 const fs = require('fs');
 const os = require('os');
-const QRCode = require('qrcode');
-const Jimp = require('jimp');
-const jsQR = require('jsqr');
 const qrDisplay = require('./qr_display');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
@@ -68,11 +65,29 @@ function saveFound(evt) {
   } catch (e) { /* ignore logging failures */ }
 }
 
-// FunÃ§Ã£o para buscar contato por nome usando a barra de pesquisa
-async function searchContactByName(client, displayName, contatoMap) {
+// Função para buscar contato por nome usando a barra de pesquisa (busca pela UI)
+// Esta função é usada como fallback no fluxo de busca de contatos
+async function uiFindContactByExactName(client, displayName) {
+  if (!client || !client.pupPage || !displayName) return null;
+  // per-day audit file: found_via_ui_YYYY-MM-DD.json
+  const today = new Date().toISOString().slice(0, 10);
+  const foundViaUiPath = path.join(__dirname, `found_via_ui_${today}.json`);
+  function saveFound(evt) {
+    try {
+      let arr = [];
+      if (fs.existsSync(foundViaUiPath)) {
+        const raw = fs.readFileSync(foundViaUiPath, 'utf8');
+        if (raw && raw.trim()) {
+          try { arr = JSON.parse(raw); } catch (e) { arr = []; }
+        }
+      }
+      arr.push(evt);
+      fs.writeFileSync(foundViaUiPath, JSON.stringify(arr, null, 2), 'utf8');
+    } catch (e) { /* ignore logging failures */ }
+  }
   try {
     const page = client.pupPage;
-    const searchSelector = 'div[title="Procurar ou comeÃ§ar uma nova conversa"]';
+    const searchSelector = 'div[title="Procurar ou começar uma nova conversa"]';
     await page.waitForSelector(searchSelector, { timeout: 3000 });
     const searchEl = await page.$(searchSelector);
     if (!searchEl) return null;
@@ -134,15 +149,6 @@ async function searchContactByName(client, displayName, contatoMap) {
 
 let enviados = 0;
 let falhas = 0;
-let qrScreenshot = null;
-let qrImageData = null;
-
-// Função para buscar contato via UI (simula digitação na barra de pesquisa)
-async function uiFindContactByExactName(client, displayName) {
-  // Placeholder: retorna null para deixar o código continuar com outros métodos de busca
-  // Esta função seria mais complexa caso necessária
-  return null;
-}
 
 // Função para capturar QR diretamente da página via Puppeteer (fallback garantido)
 async function captureQRFromPage(page, maxAttempts = 120) {
