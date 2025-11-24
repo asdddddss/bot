@@ -10,7 +10,6 @@ const os = require('os');
 const qrDisplay = require('./qr_display');
 // Timezone configuration: default to Sao Paulo
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
-
 // Return the hour (0-23) in the given IANA time zone using Intl.
 function getHourInTimeZone(timeZone) {
   try {
@@ -24,12 +23,10 @@ function getHourInTimeZone(timeZone) {
   // fallback to local hour
   return new Date().getHours();
 }
-
 // Helper: delay for async/await
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-
 // Wait until the send window opens in the TARGET_TIMEZONE by polling every minute.
 async function waitUntilSendWindow() {
   while (!isWithinSendWindow()) {
@@ -38,7 +35,6 @@ async function waitUntilSendWindow() {
     await delay(60000); // check again in 60 seconds
   }
 }
-
 // Janela de horÃ¡rio para envio da primeira mensagem (horÃ¡rio local do servidor)
 function isWithinSendWindow() {
   // Use the configured target timezone to determine the current hour
@@ -46,11 +42,9 @@ function isWithinSendWindow() {
   // Start sending only from 13:00 until before 18:00 in the target timezone
   return hour >= 13 && hour < 18; // entre 13:00 (inclusive) e 18:00 (exclusive)
 }
-
 // Per-day audit file for UI search results
 const today = new Date().toISOString().slice(0, 10);
 const foundViaUiPath = path.join(__dirname, `found_via_ui_${today}.json`);
-
 function saveFound(evt) {
   try {
     let arr = [];
@@ -64,7 +58,6 @@ function saveFound(evt) {
     fs.writeFileSync(foundViaUiPath, JSON.stringify(arr, null, 2), 'utf8');
   } catch (e) { /* ignore logging failures */ }
 }
-
 // Função para buscar contato por nome usando a barra de pesquisa (busca pela UI)
 // Esta função é usada como fallback no fluxo de busca de contatos
 async function uiFindContactByExactName(client, displayName) {
@@ -146,84 +139,14 @@ async function uiFindContactByExactName(client, displayName) {
     return null;
   }
 }
-
 let enviados = 0;
 let falhas = 0;
-
 // Função para capturar QR diretamente da página via Puppeteer (fallback garantido)
-async function captureQRFromPage(page, maxAttempts = 120) {
-  let attempts = 0;
-  while (attempts < maxAttempts) {
-    try {
-      // Tenta encontrar a imagem do QR na pÃ¡gina
-      const qrImageData = await page.evaluate(() => {
-        // Procura por canvas com QR (pode estar visÃ­vel ou hidden)
-        const canvases = document.querySelectorAll('canvas');
-        for (const canvas of canvases) {
-          try {
-            // Qualquer canvas de tamanho razoÃ¡vel pode ser QR
-            if (canvas.width > 50 && canvas.height > 50) {
-              const data = canvas.toDataURL('image/png');
-              // Verifica se tem conteÃºdo (nÃ£o Ã© branco)
-              if (data && data.length > 500) {
-                return data;
-              }
-            }
-          } catch (e) {
-            // ignore canvas access errors (CORS, etc)
-          }
-        }
-        // Procura por divs que contenham QR (div.qr-code, etc)
-        const qrDivs = document.querySelectorAll('[class*="qr"], [id*="qr"], svg[data-qr]');
-        for (const div of qrDivs) {
-          if (div && div.offsetHeight > 50 && div.offsetWidth > 50) {
-            // Tenta extrair como imagem
-            try {
-              if (div.tagName === 'IMG') return div.src;
-              if (div.tagName === 'CANVAS') return div.toDataURL('image/png');
-            } catch (e) {}
-          }
-        }
-        return null;
-      });
-
-      if (qrImageData && qrImageData.length > 500) {
-        console.log('\nðŸ“¸ QR Code capturado via Puppeteer!\n');
-        const cleanData = qrImageData.replace(/^data:image\/png;base64,/, '');
-        await new Promise((resolve) => {
-          QRCode.toString(cleanData, { type: 'terminal' }, (err, result) => {
-            if (!err && result) {
-              console.log('ðŸ“± QR Code (ASCII Art):\n');
-              console.log(result);
-            } else {
-              console.log('ðŸ“¸ QR detectado (pode estar visÃ­vel na janela Chrome)\n');
-            }
-            resolve();
-          });
-        });
-        console.log('\nâ³ Aguardando vocÃª escanear o QR code...\n');
-        return true;
-      }
-    } catch (err) {
-      // ignore errors, continue trying
-    }
-    
-    attempts++;
-    if (attempts % 20 === 0) {
-      console.log(`â³ Aguardando QR na pÃ¡gina... (${attempts}s)`);
-    }
-    await delay(1000);
-  }
-  return false;
-}
-
 // Mapa para armazenar quais contatos foram iniciados por este bot
 // chave: chatId (ex: '5511999999999@c.us'), valor: { startedAt: timestamp }
 const contatosIniciados = new Map();
-
 // session name can be overridden with env WPP_SESSION to allow multiple copies
 let sessionName = process.env.WPP_SESSION || 'disparador';
-
 // Locate tokens directory and try to reuse an existing session folder.
 // Earlier logic forced a new sessionName with a timestamp when the simple
 // `tokens/<sessionName>` folder didn't exist which generated a new QR on
@@ -248,7 +171,6 @@ try {
       candidate = matches[0];
     }
   }
-
   if (candidate) {
     sessionName = candidate;
     console.log('â„¹ï¸ Reutilizando sessÃ£o existente:', sessionName);
@@ -262,222 +184,13 @@ try {
   // fallback to timestamped session to avoid failing the start
   sessionName = `${sessionName}-auth-${Date.now()}`;
 }
-
 console.log('â„¹ï¸ Using session:', sessionName);
 console.log('â„¹ï¸ Script __dirname:', __dirname);
 console.log('âœ… Iniciando wppconnect.create() â€” aguardando QR code...\n');
-
 // VariÃ¡vel para rastrear se o QR jÃ¡ foi exibido
-let qrShown = false;
-
 // FunÃ§Ã£o para decodificar QR de screenshot via jsQR
-async function decodeQRFromScreenshot(screenshotBase64) {
-  try {
-    // Converter base64 para buffer
-    const buffer = Buffer.from(screenshotBase64, 'base64');
-    
-    // Usar Jimp para carregar a imagem
-    const image = await Jimp.read(buffer);
-    
-    // Extrair dados de pixel (RGBA)
-    const imageData = {
-      data: new Uint8ClampedArray(image.bitmap.data),
-      width: image.bitmap.width,
-      height: image.bitmap.height
-    };
-    
-    // Decodificar QR code usando jsQR
-    const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
-    
-    if (qrCode && qrCode.data) {
-      return qrCode.data;
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
-
 // FunÃ§Ã£o para capturar screenshot do QR code do WhatsApp Web
-async function captureQRScreenshot(page) {
-  try {
-    if (!page) return null;
-    
-    // Tenta encontrar o elemento QR code no DOM
-    const qrElement = await page.$('canvas[data-testid*="qr"], [data-testid*="qr"], canvas, div[class*="qr"]');
-    
-    if (qrElement) {
-      // Se encontrou, tira screenshot sÃ³ do elemento
-      const screenshot = await qrElement.screenshot({ encoding: 'base64' });
-      if (screenshot && screenshot.length > 500) {
-        console.log('ðŸ“¸ Screenshot do QR code capturado via elemento!');
-        return screenshot;
-      }
-    }
-
-    // Se nÃ£o encontrou o elemento, tira screenshot de uma regiÃ£o da pÃ¡gina
-    // Tenta screenshots de diferentes regiÃµes onde o QR pode estar
-    const regions = [
-      { x: 0, y: 0, width: 600, height: 600 },        // Canto superior esquerdo
-      { x: 100, y: 100, width: 500, height: 500 },    // Centro
-    ];
-
-    for (const region of regions) {
-      try {
-        const screenshot = await page.screenshot({ 
-          encoding: 'base64',
-          clip: region
-        });
-        
-        if (screenshot && screenshot.length > 500) {
-          // Verifica se a imagem nÃ£o Ã© toda branca (tem conteÃºdo)
-          const buffer = Buffer.from(screenshot, 'base64');
-          if (buffer.length > 1000) {
-            console.log('ðŸ“¸ Screenshot do QR code capturado com sucesso!');
-            return screenshot;
-          }
-        }
-      } catch (e) {
-        // Continua para prÃ³xima regiÃ£o
-      }
-    }
-
-    return null;
-  } catch (e) {
-    console.log('âš ï¸ Erro ao capturar screenshot do QR:', e && e.message ? e.message : e);
-    return null;
-  }
-}
-
 // FunÃ§Ã£o para capturar e exibir QR continuamente
-async function captureAndDisplayQR(client) {
-  const maxAttempts = 600; // 10 minutos (600 * 1s)
-  let lastError = '';
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const waPage = client.waPage;
-      if (!waPage) {
-        if (attempt === 0) console.log('â³ Aguardando pÃ¡gina Puppeteer...');
-        await delay(1000);
-        continue;
-      }
-
-      // MÃ‰TODO 1: Tenta extrair QR do DOM (canvas/img)
-      const qrData = await waPage.evaluate(() => {
-        try {
-          // Procura canvas (QR renderizado como canvas)
-          const canvas = document.querySelector('canvas');
-          if (canvas && canvas.offsetHeight > 100 && canvas.offsetWidth > 100) {
-            return { type: 'canvas', data: canvas.toDataURL('image/png') };
-          }
-          
-          // Procura img com base64 (QR como imagem)
-          const img = document.querySelector('img[src^="data:image"]');
-          if (img && img.naturalWidth > 100) {
-            return { type: 'img', data: img.src };
-          }
-
-          return null;
-        } catch (e) {
-          return null;
-        }
-      });
-
-      // MÃ‰TODO 2: Se mÃ©todo 1 falhar, tira screenshot e decodifica
-      let qrText = null;
-      if (!qrData && !qrShown) {
-        try {
-          const screenshot = await waPage.screenshot({ encoding: 'base64' });
-          qrText = await decodeQRFromScreenshot(screenshot);
-        } catch (e) {
-          // Screenshot falhou, continua
-        }
-      }
-
-      // Se encontrou QR por qualquer mÃ©todo, exibe
-      if ((qrData || qrText) && !qrShown) {
-        console.log('\n' + '='.repeat(80));
-        console.log('ðŸ“± QR CODE ENCONTRADO! Capturando screenshot...');
-        console.log('='.repeat(80) + '\n');
-        
-        // Tentar capturar screenshot do QR code
-        const screenshot = await captureQRScreenshot(waPage);
-        if (screenshot) {
-          qrScreenshot = screenshot;
-          console.log('âœ… Screenshot do WhatsApp Web capturado!\n');
-        }
-        
-        if (qrData) {
-          const cleanData = qrData.data.replace(/^data:image\/png;base64,/, '');
-          qrImageData = cleanData; // TambÃ©m salvar PNG alternativo
-          try {
-            const asciiQR = await new Promise((resolve) => {
-              QRCode.toString(cleanData, { type: 'terminal', width: 15 }, (err, result) => {
-                resolve(err ? null : result);
-              });
-            });
-            if (asciiQR) {
-              console.log(asciiQR);
-            }
-          } catch (e) {
-            // Render falhou
-          }
-        } else if (qrText) {
-          console.log('âœ… QR Decodificado via screenshot!');
-          console.log('Dados encontrados: ' + qrText.substring(0, 100) + '...\n');
-          try {
-            const asciiQR = await new Promise((resolve) => {
-              QRCode.toString(qrText, { type: 'terminal', width: 15 }, (err, result) => {
-                resolve(err ? null : result);
-              });
-            });
-            if (asciiQR) {
-              console.log(asciiQR);
-            }
-          } catch (e) {
-            // Render falhou
-          }
-        }
-
-        console.log('\n' + '='.repeat(80));
-        console.log('ðŸŒ ACESSE VIA HTTP:');
-        console.log('='.repeat(80) + '\n');
-        
-        qrShown = true;
-      }
-      
-      // Se QR jÃ¡ foi mostrado, verificar se autenticou
-      if (qrShown) {
-        try {
-          const profileName = await client.getProfileName();
-          if (profileName && String(profileName).trim().length > 0) {
-            console.log('ðŸŽ‰ AutenticaÃ§Ã£o CONCLUÃDA! Bem-vindo:', profileName);
-            return true;
-          }
-        } catch (e) {
-          // Ainda nÃ£o autenticado
-        }
-      }
-
-      if (attempt === 0) console.log('â³ Monitorando pÃ¡gina para QR...');
-      if (attempt % 10 === 0 && attempt > 0) {
-        console.log(`â³ Aguardando... ${attempt}s`);
-      }
-      await delay(1000);
-      
-    } catch (e) {
-      const errMsg = e && e.message ? e.message : String(e);
-      if (errMsg !== lastError) {
-        console.log('â„¹ï¸ Monitoramento:', errMsg);
-        lastError = errMsg;
-      }
-      await delay(1000);
-    }
-  }
-  return false;
-}
-
 wppconnect.create({
   session: sessionName,
   headless: process.env.HEADLESS !== 'false' ? true : false,  // â† DEFAULT TRUE (production/VPS); set HEADLESS=false to see browser
@@ -498,10 +211,7 @@ wppconnect.create({
   }
 }).then(async (client) => {
   console.log('\nâœ… âœ… âœ… BOT CONECTADO âœ… âœ… âœ…\n');
-  
   // Inicia captura de QR em background
-  const qrCapturePromise = captureAndDisplayQR(client);
-  
   // Aguarda um pouco para a pÃ¡gina carregar
   await delay(3000);
   let isReallyLogged = false;
@@ -514,17 +224,14 @@ wppconnect.create({
     console.log('â„¹ï¸ Erro ao obter perfil:', e && e.message ? e.message : 'desconhecido');
     isReallyLogged = false;
   }
-  
   if (!isReallyLogged) {
     console.log('\nðŸ” DETECÃ‡ÃƒO: SessÃ£o NÃƒO estÃ¡ autenticada!');
     console.log('â³ Verificando pÃ¡gina para QR code...\n');
   } else {
     console.log('ðŸŽ‰ SessÃ£o conectada ao WhatsApp!\n');
   }
-
   // ---------- START: funÃ§Ãµes para consultas/envio manuais sem parar o bot ----------
   const STARTED_FILE = path.join(__dirname, 'contatos_iniciados.json');
-
   function loadStartedFromDisk() {
     try {
       if (fs.existsSync(STARTED_FILE)) {
@@ -547,7 +254,6 @@ wppconnect.create({
       console.log('âš ï¸ Erro ao carregar contatos iniciados:', e && e.message ? e.message : e);
     }
   }
-
   function saveStartedToDisk() {
     try {
       const obj = Object.fromEntries(Array.from(contatosIniciados.entries()));
@@ -556,10 +262,8 @@ wppconnect.create({
       console.log('âš ï¸ Erro ao salvar contatos iniciados:', e && e.message ? e.message : e);
     }
   }
-
   // Carrega estado persistido (se houver)
   loadStartedFromDisk();
-
   // Retorna array de objetos { chatIdNorm, chatIdOriginal, info } para os "abertos"
   function getOpenConversations() {
     const out = [];
@@ -580,14 +284,12 @@ wppconnect.create({
     }
     return out;
   }
-
   // Interactive stdin handler removed â€” no terminal commands exposed
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (raw) => {
     // intentionally ignore stdin commands in production mode
   });
   // ---------- END: funÃ§Ãµes para consultas/envio manuais ----------
-
   // Listener: sÃ³ responde quando um contato que o bot iniciou responder
   client.onMessage(async (msg) => {
     try {
@@ -596,10 +298,8 @@ wppconnect.create({
       if (msg.isGroupMsg) return; // ignorar grupos
       if (msg.type === 'status') return; // ignorar atualizaÃ§Ãµes de status
       if (msg.isNotification || msg.isBot) return; // ignorar notificaÃ§Ãµes/bots
-
       const chatId = msg.from; // id do chat (ex: '5511999999999@c.us')
       const incomingNorm = normalizeChatId(chatId);
-
       // Try to extract a stable message id for deduplication (various wppconnect shapes)
       function getMessageUniqueId(m) {
         if (!m) return null;
@@ -609,10 +309,8 @@ wppconnect.create({
         if (m.id && m.id._serialized) return m.id._serialized;
         try { return JSON.stringify(m); } catch (e) { return null; }
       }
-
       const incomingMsgId = getMessageUniqueId(msg);
       const now = Date.now();
-
       // Debounce/dedupe: ignore if we already responded to the same message id
       const startedInfo = contatosIniciados.get(incomingNorm);
       if (startedInfo) {
@@ -627,14 +325,12 @@ wppconnect.create({
           return;
         }
       }
-
       // Verifica se esse contato foi iniciado por este bot (usando id normalizado)
       if (!contatosIniciados.has(incomingNorm)) {
         // NÃ£o iniciamos essa conversa, entÃ£o nÃ£o respondemos
         console.log(`âš ï¸ Mensagem recebida de ${incomingNorm} mas nÃ£o iniciada por este bot â€” ignorando.`);
         return;
       }
-
       // If the message arrives very soon after we started the conversation, treat it as automatic
       // (some autoresponders and systems reply immediately). Ignore messages within 5s of startedAt.
       try {
@@ -646,20 +342,17 @@ wppconnect.create({
           return;
         }
       } catch (e) { /* ignore errors retrieving startedAt */ }
-
       // Se jÃ¡ enviamos o Ã¡udio para essa conversa, nÃ£o enviamos novamente
       let startedInfoCheck = contatosIniciados.get(incomingNorm);
       if (startedInfoCheck && startedInfoCheck.audioSent) {
         console.log(`â„¹ï¸ Ãudio jÃ¡ enviado anteriormente para ${incomingNorm} â€” ignorando envio duplicado.`);
         return;
       }
-
       // Apenas responder se a mensagem parecer vinda de um humano (filtra auto-replies/sistemas)
       if (!isLikelyHumanMessage(msg)) {
         console.log(`âš ï¸ Mensagem de ${incomingNorm} parece automÃ¡tica/sistema â€” ignorando.`);
         return;
       }
-
       // Optional: evitar respostas a mensagens automÃ¡ticas - exemplo ampliado
       const body = (msg.body || '').toString().toLowerCase();
       // expanded patterns to catch common auto-replies / OOF messages
@@ -674,14 +367,12 @@ wppconnect.create({
         console.log(`âš ï¸ Mensagem parece automÃ¡tica/sistema de ${chatId} â€” ignorando.`);
         return;
       }
-
   // enviar Ã¡udio de resposta (simulando gravaÃ§Ã£o na hora)
   const audioPath = path.join(__dirname, 'audio_resposta.ogg');
       if (!fs.existsSync(audioPath)) {
         console.log(`âš ï¸ Arquivo de Ã¡udio nÃ£o encontrado em ${audioPath}.`);
         return;
       }
-
       try {
         const startedInfo2 = contatosIniciados.get(incomingNorm);
         const targetId = startedInfo2 && startedInfo2.chatIdOriginal ? startedInfo2.chatIdOriginal : chatId;
@@ -720,14 +411,11 @@ wppconnect.create({
       console.log('âŒ Erro no onMessage:', err.message);
     }
   });
-
   // Aguarda 2 minutos antes de buscar contatos para garantir carregamento
   console.log('â³ Aguardando 2 minutos para carregar contatos...');
   await delay(120000);
-
   // ConfigurÃ¡veis
   // Limite mÃ¡ximo de envios (padrÃ£o) - usa MAX_OPA jÃ¡ definido no topo
-
   // VariÃ¡veis de escopo para Ã­ndices que podem ser rebuildados
   let todosContatos = [];
   let contatoMap = new Map();
@@ -735,7 +423,6 @@ wppconnect.create({
   let lastNMap = new Map();
   let tokenIndex = new Map();
   let formattedNameMap = new Map();
-
   function extractDigitsFromId(c) {
     try {
       const idStr = c && (c.id && (typeof c.id === 'string' ? c.id : (c.id._serialized || '')) || c._serialized || '');
@@ -747,7 +434,6 @@ wppconnect.create({
       return '';
     } catch (e) { return ''; }
   }
-
   // Rebuilda todos os Ã­ndices a partir de todosContatos
   function rebuildIndices() {
     contatoMap = new Map(
@@ -759,7 +445,6 @@ wppconnect.create({
     lastNMap = new Map();
     tokenIndex = new Map();
     formattedNameMap = new Map();
-
     todosContatos.forEach(c => {
       const p = extractDigitsFromId(c);
       if (p) {
@@ -778,7 +463,6 @@ wppconnect.create({
       }
       if (c.formattedName) formattedNameMap.set(removerAcentos(String(c.formattedName).toLowerCase()), c);
     });
-
     // Log da agenda atualizado
     try {
       const logContatosPath = path.join(__dirname, 'log_contatos_wpp.txt');
@@ -792,11 +476,9 @@ wppconnect.create({
       console.log('âš ï¸ Erro ao atualizar log_contatos_wpp.txt:', e && e.message ? e.message : e);
     }
   }
-
   // Busca inicial e build dos Ã­ndices
     // Persistent cache on disk for contacts (agenda_cache.json)
     const AGENDA_CACHE_FILE = path.join(__dirname, 'agenda_cache.json');
-
     function loadAgendaCache() {
       try {
         if (fs.existsSync(AGENDA_CACHE_FILE)) {
@@ -814,7 +496,6 @@ wppconnect.create({
       }
       return null;
     }
-
     function saveAgendaCache(list) {
       try {
         if (!Array.isArray(list) || list.length === 0) {
@@ -829,14 +510,12 @@ wppconnect.create({
         return false;
       }
     }
-
     // 1) tenta carregar do cache no disco primeiro
     const cached = loadAgendaCache();
     if (cached) {
       todosContatos = cached;
       try { rebuildIndices(); } catch (e) { console.log('âš ï¸ Erro rebuildIndices apÃ³s carregar cache:', e && e.message ? e.message : e); }
     }
-
     // 2) em seguida, tenta buscar do WhatsApp â€” se obtiver uma lista vÃ¡lida (nÃ£o vazia), sobrescreve cache
     try {
       const fresh = await (client.listContacts ? client.listContacts() : (client.getAllContacts ? client.getAllContacts() : []));
@@ -854,9 +533,7 @@ wppconnect.create({
       console.log('âŒ Erro ao obter contatos iniciais do WhatsApp:', e && e.message ? e.message : e);
       if (!cached) console.log('âš ï¸ Nenhum cache local disponÃ­vel â€” a lista de contatos ficarÃ¡ vazia atÃ© que seja possÃ­vel obter do WhatsApp.');
     }
-
   // Limite mÃ¡ximo de envios (padrÃ£o) - usa MAX_OPA jÃ¡ definido no topo
-
   // MantÃ©m a funÃ§Ã£o de envio inicial (envia "Opa" para cada contato filtrado)
   // ConstrÃ³i um set com os nÃºmeros autorizados (da lista `contatos`) para garantir que
   // nunca enviemos para contatos que nÃ£o estÃ£o explicitamente na sua lista filtrada.
@@ -865,7 +542,6 @@ wppconnect.create({
   // If the process started before 13:00 in TARGET_TIMEZONE, wait until the send window opens there
   await waitUntilSendWindow();
   console.log('â–¶ï¸ Janela de envio aberta no fuso', TARGET_TIMEZONE, 'â€” iniciando envios.');
-
   for (const [i, contato] of contatos.entries()) {
     if (enviados >= MAX_OPA) {
       console.log(`ðŸš¦ Limite de ${MAX_OPA} mensagens 'opa' atingido. Parando envios.`);
@@ -884,12 +560,10 @@ wppconnect.create({
     let skipDelay = false;
     const nomeBusca = removerAcentos(normalizarNomeContato(contato).toLowerCase().replace(/ +/g, ' ').trim());
   const mensagem = `Boa tarde`;
-
     try {
       // ImplementaÃ§Ã£o do fluxo baseado em Ã­ndices
       let contatoAgenda = null;
       const tentativaNumero = contato.numero ? normalizePhone(contato.numero) : null;
-
       // First: try UI exact-name search (simulate human searching by the exact display name)
       let uiFound = null;
       let uiConfirmed = false;
@@ -906,13 +580,11 @@ wppconnect.create({
         } catch (uiErr) { if (process.env.WPP_DEBUG_MATCH) console.log('âš ï¸ UI search error:', uiErr && uiErr.message ? uiErr.message : uiErr); }
       }
       uiConfirmed = !!uiFound;
-
       // 1) busca por nÃºmero exato
       if (tentativaNumero && phoneMap.has(tentativaNumero)) {
         contatoAgenda = phoneMap.get(tentativaNumero);
         console.log(`ðŸ”Ž Encontrado por nÃºmero exato: ${normalizeChatId(contatoAgenda.id)}`);
       }
-
       // 2) busca por Ãºltimos dÃ­gitos
       if (!contatoAgenda && tentativaNumero) {
         const last = tentativaNumero.slice(-LAST_N);
@@ -930,13 +602,11 @@ wppconnect.create({
         }
         if (contatoAgenda) console.log(`ðŸ”Ž Encontrado por Ãºltimos dÃ­gitos: ${normalizeChatId(contatoAgenda.id)}`);
       }
-
       // 3) busca por nome exato no mapa
       if (!contatoAgenda && contatoMap.has(nomeBusca)) {
         contatoAgenda = contatoMap.get(nomeBusca);
         console.log(`ðŸ”Ž Encontrado no nameMap: ${contatoAgenda.name}`);
       }
-
       // 4) token index intersection
       if (!contatoAgenda) {
         const tokens = nomeBusca.split(' ').filter(t => t.length > 2);
@@ -950,7 +620,6 @@ wppconnect.create({
         if (candidates.length > 0) contatoAgenda = candidates[0];
         if (contatoAgenda) console.log(`ðŸ”Ž Encontrado por tokenIndex: ${contatoAgenda.name}`);
       }
-
       // 5) fuzzy global (Ãºltimo recurso antes da UI)
       if (!contatoAgenda) {
         let best = null, bestScore = 0;
@@ -963,9 +632,7 @@ wppconnect.create({
         }
         if (best) { contatoAgenda = best; console.log(`ðŸ”Ž Encontrado por fuzzy global: ${contatoAgenda.name}`); }
       }
-
       // (UI confirmation removed â€” using unified uiFindContactByExactName earlier)
-
       // 7) envio final seguindo confirmaÃ§Ãµes
       // ProteÃ§Ã£o extra: se o candidato encontrado (contatoAgenda) nÃ£o estiver na lista filtrada
       // (pelo nÃºmero), pule para evitar enviar para contatos do catÃ¡logo que coincidem por nome.
@@ -1031,12 +698,10 @@ wppconnect.create({
             } catch (inner) { /* ignore per-contact parse errors */ }
           }
         } catch (e) { /* ignore failures during scan */ }
-
         // se nÃ£o encontrado por nÃºmero, tentar mapear por nome exato
         if (!foundAgendaContact && contatoMap && contatoMap.has(nomeBusca)) {
           foundAgendaContact = contatoMap.get(nomeBusca);
         }
-
         if (foundAgendaContact && foundAgendaContact.id) {
           contatoAgenda = foundAgendaContact;
           const chatId = contatoAgenda.id; const chatIdNorm = normalizeChatId(chatId);
@@ -1091,12 +756,9 @@ wppconnect.create({
       console.log(`âŒ [${i + 1}/${contatos.length}] Erro ao processar ${normalizarNomeContato(contato)}: ${e.message}`);
       falhas++;
     }
-
     const restantes = contatos.length - (i + 1);
-
     // (refresh periÃ³dico removido â€” usamos cache persistente em disco e atualizaÃ§Ã£o manual)
     console.log(`ðŸ“Š Progresso: ${enviados} enviados, ${falhas} falhas, ${restantes} restantes.`);
-
     if (skipDelay) {
       console.log('â© Pulando espera devido a falha / chat existente â€” seguindo para o prÃ³ximo contato.');
     } else {
@@ -1105,26 +767,21 @@ wppconnect.create({
       await delay(espera);
     }
   }
-
   // escreve resumo final usando as variÃ¡veis de topo (enviados/falhas)
   try {
     fs.writeFileSync(path.join(__dirname, 'log.txt'), `Enviados: ${enviados}\\nFalhas: ${falhas}`);
   } catch (e) {}
   console.log(`ðŸ“Š Envio finalizado: ${enviados} enviados, ${falhas} falhas`);
-
   // Keep the process alive so the bot can respond with audio to incoming replies.
   console.log('ðŸ¤– Bot permanecerÃ¡ ativo para receber respostas e enviar Ã¡udio. Pressione CTRL+C para encerrar.');
-
   // Heartbeat log to keep process/connection active and make status visible
   setInterval(() => {
     console.log(`ðŸ«¡ Bot ativo. Enviados: ${enviados}, Falhas: ${falhas}. ${new Date().toISOString()}`);
   }, 5 * 60 * 1000); // every 5 minutes
-
   // --- New: shutdown watcher ---
   // The bot will remain active until the configured shutdown time in TARGET_TIMEZONE
   const SHUTDOWN_HOUR = process.env.SHUTDOWN_HOUR ? Number(process.env.SHUTDOWN_HOUR) : 19; // default 19
   const SHUTDOWN_MINUTE = process.env.SHUTDOWN_MINUTE ? Number(process.env.SHUTDOWN_MINUTE) : 30; // default :30
-
   function getMinuteInTimeZone(timeZone) {
     try {
       const dtf = new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, minute: '2-digit', hour: '2-digit', second: '2-digit' });
@@ -1135,7 +792,6 @@ wppconnect.create({
       return new Date().getMinutes();
     }
   }
-
   // Start watcher that will gracefully close the client when TARGET_TIMEZONE reaches SHUTDOWN_HOUR:SHUTDOWN_MINUTE.
   (function startShutdownWatcher() {
     try {
@@ -1161,7 +817,6 @@ wppconnect.create({
       console.log('âš ï¸ NÃ£o foi possÃ­vel iniciar shutdown watcher:', e && e.message ? e.message : e);
     }
   })();
-
   // Graceful shutdown on CTRL+C
   process.on('SIGINT', async () => {
     console.log('\nâ¹ï¸ Recebido SIGINT â€” encerrando sessÃ£o...');
@@ -1179,6 +834,4 @@ wppconnect.create({
   console.log('   2. Verifique se o navegador Chrome estÃ¡ disponÃ­vel');
   console.log('   3. Tente novamente ou use um novo WPP_SESSION\n');
   process.exit(1);
-});
-
-
+});
