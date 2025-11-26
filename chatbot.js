@@ -30,18 +30,19 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function waitUntilSendWindow() {
-  while (!isWithinSendWindow()) {
-    const hr = getHourInTimeZone(TARGET_TIMEZONE);
-    console.log(`⏳ Fora do horário de envio no fuso ${TARGET_TIMEZONE} (hora local lá: ${hr}) – verificando novamente em 60s.`);
-    await delay(60000);
-  }
-}
+// DISABLED: Função de espera de horário de envio – comentada para permitir envios a qualquer hora
+// async function waitUntilSendWindow() {
+//   while (!isWithinSendWindow()) {
+//     const hr = getHourInTimeZone(TARGET_TIMEZONE);
+//     console.log(`⏳ Fora do horário de envio no fuso ${TARGET_TIMEZONE} (hora local lá: ${hr}) – verificando novamente em 60s.`);
+//     await delay(60000);
+//   }
+// }
 
-function isWithinSendWindow() {
-  const hour = getHourInTimeZone(TARGET_TIMEZONE);
-  return hour >= 13 && hour < 18;
-}
+// function isWithinSendWindow() {
+//   const hour = getHourInTimeZone(TARGET_TIMEZONE);
+//   return hour >= 13 && hour < 18;
+// }
 
 function removerAcentos(str) {
   if (!str) return '';
@@ -611,8 +612,11 @@ wppconnect.create({
   const allowedNumbers = new Set(contatos.map(c => normalizePhone(c.numero)).filter(Boolean));
   console.log(`ℹ️ Números autorizados carregados: ${allowedNumbers.size}`);
   
-  await waitUntilSendWindow();
-  console.log('▶️ Janela de envio aberta no fuso', TARGET_TIMEZONE, '– iniciando envios.');
+  // DISABLED: Verificação de horário – comentada para permitir envios a qualquer hora
+  // await waitUntilSendWindow();
+  // console.log('▶️ Janela de envio aberta no fuso', TARGET_TIMEZONE, '– iniciando envios.');
+  
+  console.log('▶️ Iniciando envios (sem restrição de horário).');
 
   for (const [i, contato] of contatos.entries()) {
     if (enviados >= MAX_OPA) {
@@ -620,14 +624,15 @@ wppconnect.create({
       break;
     }
     
-    if (process.env.WPP_DEBUG_MATCH) {
-      const hr = getHourInTimeZone(TARGET_TIMEZONE);
-      console.log(`🔍 Hora atual em ${TARGET_TIMEZONE}: ${hr}h – isWithinSendWindow()=${isWithinSendWindow()}`);
-    }
-    
-    if (!isWithinSendWindow()) {
-      await waitUntilSendWindow();
-    }
+    // DISABLED: Verificação de horário de envio – comentada para permitir envios a qualquer hora
+    // if (process.env.WPP_DEBUG_MATCH) {
+    //   const hr = getHourInTimeZone(TARGET_TIMEZONE);
+    //   console.log(`🔍 Hora atual em ${TARGET_TIMEZONE}: ${hr}h – isWithinSendWindow()=${isWithinSendWindow()}`);
+    // }
+    // 
+    // if (!isWithinSendWindow()) {
+    //   await waitUntilSendWindow();
+    // }
     
     let skipDelay = false;
     const nomeBusca = removerAcentos(normalizarNomeContato(contato).toLowerCase().replace(/ +/g, ' ').trim());
