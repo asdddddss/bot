@@ -1,4 +1,4 @@
-// WhatsApp Bot - Fixed Version
+﻿// WhatsApp Bot - Fixed Version
 const wppconnect = require('@wppconnect-team/wppconnect');
 const path = require('path');
 const contatosData = require(path.join(__dirname, 'contatos_filtrados.json'));
@@ -257,11 +257,13 @@ wppconnect.create({
   waitForLogin: false,
   logQR: true,
   disableWelcome: false,
-  protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 300000,
+  // Increase protocolTimeout to avoid Runtime.callFunctionOn timed out errors during heavy CDP calls
+  protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 1200000,
   catchQR: qrDisplay.setupQRDisplay(),
   puppeteerOptions: {
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
-    timeout: process.env.PUPPETEER_LAUNCH_TIMEOUT ? Number(process.env.PUPPETEER_LAUNCH_TIMEOUT) : 0,
+  // Keep launch timeout unlimited by default; can be overridden via env
+  timeout: process.env.PUPPETEER_LAUNCH_TIMEOUT ? Number(process.env.PUPPETEER_LAUNCH_TIMEOUT) : 0,
     dumpio: process.env.PUPPETEER_DUMPIO ? (process.env.PUPPETEER_DUMPIO === '1' || process.env.PUPPETEER_DUMPIO === 'true') : false,
     defaultViewport: null
   }
@@ -415,7 +417,7 @@ wppconnect.create({
         } else if (client.sendFile && typeof client.sendFile === 'function') {
           await client.sendFile(targetId, audioPath, 'audio.ogg', '', { sendAudioAsVoice: true });
         } else if (client.sendText && typeof client.sendText === 'function') {
-          await client.sendText(targetId, 'Não foi possível enviar o áudio automaticamente.');
+          await sendTextWithRetries(client, targetId, 'Não foi possível enviar o áudio automaticamente.');
         } else {
           throw new Error('Nenhum método de envio de áudio suportado pelo client');
         }
@@ -542,8 +544,57 @@ wppconnect.create({
     try { rebuildIndices(); } catch (e) { console.log('⚠️ Erro rebuildIndices após carregar cache:', e && e.message ? e.message : e); }
   }
 
+  // Helper: fetch contacts with retries to avoid transient protocol timeouts
+  async function fetchContactsWithRetries(client, attempts = 3, waitMs = 10000) {
+    let lastErr = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const contacts = await (client.listContacts ? client.listContacts() : (client.getAllContacts ? client.getAllContacts() : []));
+        return contacts || [];
+      } catch (err) {
+        lastErr = err;
+        const msg = err && err.message ? err.message : String(err);
+        console.log(`⚠️ fetchContactsWithRetries: tentativa ${i+1} falhou: ${msg}`);
+        // If last attempt, break and rethrow below
+        if (i < attempts - 1) await delay(waitMs);
+      }
+    }
+    throw lastErr;
+  }
+
+  // Helper: send text with retries to mitigate transient protocol/CDP timeouts
+  async function sendTextWithRetries(client, chatId, text, attempts = process.env.SEND_RETRIES ? Number(process.env.SEND_RETRIES) : 3, waitMs = process.env.SEND_RETRY_WAIT_MS ? Number(process.env.SEND_RETRY_WAIT_MS) : 7000) {
+    let lastErr = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        if (!client) throw new Error('client not available');
+        // Prefer native sendText when available
+        if (client.sendText && typeof client.sendText === 'function') {
+          return await client.sendText(chatId, text);
+        }
+        // Fallback to generic sendMessage if present
+        if (client.sendMessage && typeof client.sendMessage === 'function') {
+          return await client.sendMessage(chatId, { text });
+        }
+        throw new Error('no send method available on client');
+      } catch (err) {
+        lastErr = err;
+        const msg = err && err.message ? err.message : String(err);
+        console.log(`⚠️ sendTextWithRetries: tentativa ${i+1} para ${chatId} falhou: ${msg}`);
+        // If not last attempt, wait with simple backoff
+        if (i < attempts - 1) {
+          const backoff = waitMs * (i + 1);
+          console.log(`   ↻ Aguardando ${Math.round(backoff / 1000)}s antes de nova tentativa...`);
+          await delay(backoff);
+        }
+      }
+    }
+    // After attempts exhausted, rethrow the last error
+    throw lastErr;
+  }
+
   try {
-    const fresh = await (client.listContacts ? client.listContacts() : (client.getAllContacts ? client.getAllContacts() : []));
+    const fresh = await fetchContactsWithRetries(client, process.env.CONTACTS_FETCH_RETRIES ? Number(process.env.CONTACTS_FETCH_RETRIES) : 3, process.env.CONTACTS_FETCH_WAIT_MS ? Number(process.env.CONTACTS_FETCH_WAIT_MS) : 10000);
     if (Array.isArray(fresh) && fresh.length > 0) {
       todosContatos = fresh;
       rebuildIndices();
@@ -554,7 +605,7 @@ wppconnect.create({
       else console.log('⚠️ Lista do WhatsApp vazia – mantendo cache local.');
     }
   } catch (e) {
-    console.log('❌ Erro ao obter contatos iniciais do WhatsApp:', e && e.message ? e.message : e);
+    console.log('❌ Erro ao obter contatos iniciais do WhatsApp (após tentativas):', e && e.message ? e.message : e);
   }
 
   const allowedNumbers = new Set(contatos.map(c => normalizePhone(c.numero)).filter(Boolean));
@@ -670,13 +721,13 @@ wppconnect.create({
           if (process.env.WPP_DEBUG_MATCH) console.log(`🔍 skip reason: chatExists true for candidate ${chatId}`);
           skipDelay = true;
         } else {
-          try {
-            await client.sendText(chatId, mensagem);
+            try {
+            await sendTextWithRetries(client, chatId, mensagem);
             contatosIniciados.set(chatIdNorm, { startedAt: Date.now(), chatIdOriginal: chatId });
             console.log(`✅ Mensagem enviada via UI para ${normalizarNomeContato(contato)} (${chatIdNorm})`);
             enviados++;
           } catch (errSend) {
-            console.log('❌ Erro envio via UI:', errSend.message);
+            console.log('❌ Erro envio via UI:', errSend && errSend.message ? errSend.message : errSend);
             falhas++;
             skipDelay = true;
           }
@@ -689,12 +740,12 @@ wppconnect.create({
           skipDelay = true;
         } else {
           try {
-            await client.sendText(chatId, mensagem);
+            await sendTextWithRetries(client, chatId, mensagem);
             contatosIniciados.set(chatIdNorm, { startedAt: Date.now(), chatIdOriginal: chatId });
             console.log(`✅ Mensagem enviada por correspondência para ${normalizarNomeContato(contato)} (${chatIdNorm})`);
             enviados++;
           } catch (errSend2) {
-            console.log('❌ Falha ao enviar por correspondência:', errSend2.message);
+            console.log('❌ Falha ao enviar por correspondência:', errSend2 && errSend2.message ? errSend2.message : errSend2);
             falhas++;
             skipDelay = true;
           }
@@ -725,12 +776,12 @@ wppconnect.create({
             skipDelay = true;
           } else {
             try {
-              await client.sendText(chatId, mensagem);
+              await sendTextWithRetries(client, chatId, mensagem);
               contatosIniciados.set(chatIdNorm, { startedAt: Date.now(), chatIdOriginal: chatId });
               console.log(`✅ Mensagem enviada por correspondência (agenda) para ${normalizarNomeContato(contato)} (${chatIdNorm})`);
               enviados++;
             } catch (errFallback) {
-              console.log('❌ Falha ao enviar por correspondência (agenda):', errFallback.message);
+              console.log('❌ Falha ao enviar por correspondência (agenda):', errFallback && errFallback.message ? errFallback.message : errFallback);
               falhas++;
               skipDelay = true;
             }
@@ -743,12 +794,12 @@ wppconnect.create({
             skipDelay = true;
           } else {
             try {
-              await client.sendText(chatId, mensagem);
+              await sendTextWithRetries(client, chatId, mensagem);
               contatosIniciados.set(chatIdNorm, { startedAt: Date.now(), chatIdOriginal: chatId });
               console.log(`⚠️ Mensagem enviada por fallback NUMÉRICO para ${normalizarNomeContato(contato)} (${chatIdNorm})`);
               enviados++;
             } catch (errFallback) {
-              console.log('❌ Falha no fallback por número:', errFallback.message);
+              console.log('❌ Falha no fallback por número:', errFallback && errFallback.message ? errFallback.message : errFallback);
               falhas++;
               skipDelay = true;
             }
