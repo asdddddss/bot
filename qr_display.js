@@ -27,19 +27,9 @@ module.exports = {
 
         console.log('\n');
 
-        if (qrCode) {
-          // Accept several shapes: string (dataURI or base64), Buffer, or object with data/qrcode fields
-          let raw = null;
-          try {
-            if (typeof qrCode === 'string') raw = String(qrCode).trim();
-            else if (Buffer.isBuffer(qrCode)) raw = qrCode.toString('base64');
-            else if (typeof qrCode === 'object') {
-              raw = qrCode.data || qrCode.qr || qrCode.qrcode || qrCode.png || null;
-            }
-          } catch (e) { raw = null; }
-
-          if (raw && String(raw).trim()) {
-            const maybeDataUri = String(raw).startsWith('data:image') ? String(raw) : `data:image/png;base64,${String(raw)}`;
+        if (qrCode && String(qrCode).trim()) {
+          const raw = String(qrCode).trim();
+          const maybeDataUri = raw.startsWith('data:image') ? raw : `data:image/png;base64,${raw}`;
 
           console.log('═'.repeat(80));
           console.log('IMAGEM QR CODE (Data URI) — Copie e cole em navegador para visualizar:');
@@ -58,9 +48,6 @@ module.exports = {
             console.log(`\nQR salvo em: ${tmpPath}`);
           } catch (saveErr) {
             console.log('⚠️ Não foi possível salvar o QR em arquivo temporário:', saveErr && saveErr.message ? saveErr.message : saveErr);
-          }
-          } else {
-            console.log('⚠️ catchQR foi chamado mas o conteúdo do QR é inválido ou vazio após normalização. Valor original:', typeof qrCode === 'object' ? JSON.stringify(qrCode).slice(0,200) : String(qrCode));
           }
         } else {
           console.log('⚠️ catchQR foi chamado mas não recebeu conteúdo válido de QR (qrCode vazio).');
