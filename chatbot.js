@@ -259,7 +259,8 @@ wppconnect.create({
   logQR: true,
   disableWelcome: false,
   // Increase protocolTimeout to avoid Runtime.callFunctionOn timed out errors during heavy CDP calls
-  protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 1200000,
+  // Default: 3000000ms (50 minutes) to handle slow contact fetches
+  protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 3000000,
   catchQR: qrDisplay.setupQRDisplay(),
   puppeteerOptions: {
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
@@ -546,7 +547,7 @@ wppconnect.create({
   }
 
   // Helper: fetch contacts with retries to avoid transient protocol timeouts
-  async function fetchContactsWithRetries(client, attempts = 3, waitMs = 10000) {
+  async function fetchContactsWithRetries(client, attempts = 5, waitMs = 15000) {
     let lastErr = null;
     for (let i = 0; i < attempts; i++) {
       try {
@@ -555,9 +556,13 @@ wppconnect.create({
       } catch (err) {
         lastErr = err;
         const msg = err && err.message ? err.message : String(err);
-        console.log(`⚠️ fetchContactsWithRetries: tentativa ${i+1} falhou: ${msg}`);
+        console.log(`⚠️ fetchContactsWithRetries: tentativa ${i+1}/${attempts} falhou: ${msg}`);
         // If last attempt, break and rethrow below
-        if (i < attempts - 1) await delay(waitMs);
+        if (i < attempts - 1) {
+          const backoffMs = waitMs * (i + 1);
+          console.log(`   ↻ Aguardando ${Math.round(backoffMs / 1000)}s antes de tentar novamente...`);
+          await delay(backoffMs);
+        }
       }
     }
     throw lastErr;
@@ -595,7 +600,7 @@ wppconnect.create({
   }
 
   try {
-    const fresh = await fetchContactsWithRetries(client, process.env.CONTACTS_FETCH_RETRIES ? Number(process.env.CONTACTS_FETCH_RETRIES) : 3, process.env.CONTACTS_FETCH_WAIT_MS ? Number(process.env.CONTACTS_FETCH_WAIT_MS) : 10000);
+    const fresh = await fetchContactsWithRetries(client, process.env.CONTACTS_FETCH_RETRIES ? Number(process.env.CONTACTS_FETCH_RETRIES) : 5, process.env.CONTACTS_FETCH_WAIT_MS ? Number(process.env.CONTACTS_FETCH_WAIT_MS) : 15000);
     if (Array.isArray(fresh) && fresh.length > 0) {
       todosContatos = fresh;
       rebuildIndices();
