@@ -132,6 +132,103 @@ function randomDelay(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+// ============ SESSION HEALTH CHECK & RECONNECTION ============
+
+let globalClient = null;
+let sessionHealthCheckInterval = null;
+const SESSION_HEALTH_CHECK_INTERVAL = 30000; // Check every 30 seconds
+const SESSION_IDLE_TIMEOUT = 300000; // 5 minutes idle = assume dead
+
+async function isSessionHealthy(client) {
+  if (!client) return false;
+  try {
+    // Try to get profile name - lightweight operation that requires live CDP connection
+    const profile = await Promise.race([
+      client.getProfileName(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Health check timeout')), 5000))
+    ]);
+    return profile && String(profile).trim().length > 0;
+  } catch (e) {
+    if (process.env.WPP_DEBUG_MATCH) {
+      console.log('⚠️ Session health check failed:', e && e.message ? e.message : e);
+    }
+    return false;
+  }
+}
+
+async function reconnectSession(sessionName) {
+  console.log('\n🔄 Tentando reconectar a sessão...');
+  try {
+    // Close current session gracefully
+    if (globalClient && globalClient.close) {
+      try {
+        await globalClient.close();
+      } catch (e) {
+        if (process.env.WPP_DEBUG_MATCH) console.log('ℹ️ Erro ao fechar cliente anterior:', e && e.message ? e.message : e);
+      }
+    }
+    
+    // Clear health check interval
+    if (sessionHealthCheckInterval) {
+      clearInterval(sessionHealthCheckInterval);
+      sessionHealthCheckInterval = null;
+    }
+
+    // Wait a bit before reconnecting
+    await delay(3000);
+
+    // Reconnect
+    console.log('⏳ Recriando conexão wppconnect...');
+    const newClient = await wppconnect.create({
+      session: sessionName,
+      headless: process.env.HEADLESS !== 'false' ? true : false,
+      autoClose: 0,
+      waitForLogin: false,
+      logQR: true,
+      disableWelcome: false,
+      protocolTimeout: process.env.PROTOCOL_TIMEOUT ? Number(process.env.PROTOCOL_TIMEOUT) : 3000000,
+      catchQR: qrDisplay.setupQRDisplay(),
+      puppeteerOptions: {
+        args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
+        timeout: process.env.PUPPETEER_LAUNCH_TIMEOUT ? Number(process.env.PUPPETEER_LAUNCH_TIMEOUT) : 0,
+        dumpio: process.env.PUPPETEER_DUMPIO ? (process.env.PUPPETEER_DUMPIO === '1' || process.env.PUPPETEER_DUMPIO === 'true') : false,
+        defaultViewport: null
+      }
+    });
+
+    globalClient = newClient;
+    console.log('✅ Sessão reconectada com sucesso!');
+    
+    // Resume health checks
+    startSessionHealthCheck(sessionName);
+    
+    return newClient;
+  } catch (e) {
+    console.log('❌ Erro ao reconectar:', e && e.message ? e.message : e);
+    console.log('⏳ Tentando novamente em 10s...');
+    await delay(10000);
+    return reconnectSession(sessionName);
+  }
+}
+
+function startSessionHealthCheck(sessionName) {
+  if (sessionHealthCheckInterval) clearInterval(sessionHealthCheckInterval);
+  
+  sessionHealthCheckInterval = setInterval(async () => {
+    if (!globalClient) return;
+    
+    try {
+      const isHealthy = await isSessionHealthy(globalClient);
+      if (!isHealthy) {
+        console.log('\n⚠️ ⚠️ ⚠️ Sessão perdeu conexão! Reconectando...');
+        globalClient = await reconnectSession(sessionName);
+      }
+    } catch (e) {
+      console.log('⚠️ Erro no health check:', e && e.message ? e.message : e);
+    }
+  }, SESSION_HEALTH_CHECK_INTERVAL);
+}
+
 const today = new Date().toISOString().slice(0, 10);
 const foundViaUiPath = path.join(__dirname, `found_via_ui_${today}.json`);
 
@@ -269,7 +366,13 @@ wppconnect.create({
     defaultViewport: null
   }
 }).then(async (client) => {
+  // Store in global for health check and reconnection
+  globalClient = client;
+  
   console.log('\n✅ ✅ ✅ BOT CONECTADO ✅ ✅ ✅\n');
+  
+  // Start periodic health checks to detect disconnections early
+  startSessionHealthCheck(sessionName);
   
   await delay(3000);
   let isReallyLogged = false;
@@ -550,12 +653,33 @@ wppconnect.create({
     let lastErr = null;
     for (let i = 0; i < attempts; i++) {
       try {
-        const contacts = await (client.listContacts ? client.listContacts() : (client.getAllContacts ? client.getAllContacts() : []));
+        // Add explicit timeout to prevent hanging indefinitely
+        const contactsPromise = client.listContacts ? client.listContacts() : (client.getAllContacts ? client.getAllContacts() : []);
+        const contacts = await Promise.race([
+          contactsPromise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Contact fetch timeout - server not responding')), 90000) // 90 second absolute timeout
+          )
+        ]);
+        console.log(`✅ Contatos obtidos com sucesso na tentativa ${i+1}`);
         return contacts || [];
       } catch (err) {
         lastErr = err;
         const msg = err && err.message ? err.message : String(err);
         console.log(`⚠️ fetchContactsWithRetries: tentativa ${i+1}/${attempts} falhou: ${msg}`);
+        
+        // If timeout error and not last attempt, try to reconnect
+        if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('ECONNRESET')) {
+          console.log('🔄 Detectado timeout/conexão perdida. Tentando reconectar...');
+          try {
+            globalClient = await reconnectSession(sessionName);
+            client = globalClient; // Update reference
+            console.log('✅ Reconexão bem-sucedida!');
+          } catch (reconnectErr) {
+            console.log('❌ Falha ao reconectar:', reconnectErr && reconnectErr.message ? reconnectErr.message : reconnectErr);
+          }
+        }
+        
         // If last attempt, break and rethrow below
         if (i < attempts - 1) {
           const backoffMs = waitMs * (i + 1);
@@ -573,19 +697,39 @@ wppconnect.create({
     for (let i = 0; i < attempts; i++) {
       try {
         if (!client) throw new Error('client not available');
-        // Prefer native sendText when available
-        if (client.sendText && typeof client.sendText === 'function') {
-          return await client.sendText(chatId, text);
-        }
-        // Fallback to generic sendMessage if present
-        if (client.sendMessage && typeof client.sendMessage === 'function') {
-          return await client.sendMessage(chatId, { text });
-        }
-        throw new Error('no send method available on client');
+        
+        // Add timeout to prevent hanging on send operations
+        const sendPromise = client.sendText && typeof client.sendText === 'function' 
+          ? client.sendText(chatId, text)
+          : (client.sendMessage && typeof client.sendMessage === 'function' 
+            ? client.sendMessage(chatId, { text })
+            : Promise.reject(new Error('no send method available on client')));
+        
+        const result = await Promise.race([
+          sendPromise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Send operation timeout - server not responding')), 30000) // 30 second timeout for send
+          )
+        ]);
+        
+        return result;
       } catch (err) {
         lastErr = err;
         const msg = err && err.message ? err.message : String(err);
         console.log(`⚠️ sendTextWithRetries: tentativa ${i+1} para ${chatId} falhou: ${msg}`);
+        
+        // If timeout error and not last attempt, try to reconnect
+        if ((msg.includes('timed out') || msg.includes('timeout') || msg.includes('not responding')) && i < attempts - 1) {
+          console.log('🔄 Detectado timeout no send. Tentando reconectar antes do próximo envio...');
+          try {
+            globalClient = await reconnectSession(sessionName);
+            client = globalClient;
+            console.log('✅ Reconexão bem-sucedida!');
+          } catch (reconnectErr) {
+            console.log('❌ Falha ao reconectar:', reconnectErr && reconnectErr.message ? reconnectErr.message : reconnectErr);
+          }
+        }
+        
         // If not last attempt, wait with simple backoff
         if (i < attempts - 1) {
           const backoff = waitMs * (i + 1);
