@@ -349,7 +349,7 @@ console.log('✅ Iniciando wppconnect.create() – aguardando QR code...\n');
 
 wppconnect.create({
   session: sessionName,
-  headless: process.env.HEADLESS !== 'false' ? true : false,
+  headless: process.env.HEADLESS !== 'false' ? false : false,
   autoClose: 0,
   waitForLogin: false,
   logQR: true,
