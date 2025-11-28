@@ -9,7 +9,7 @@ const qrDisplay = require('./qr_display');
 
 // Configuration
 const TARGET_TIMEZONE = process.env.BOT_TIMEZONE || 'America/Sao_Paulo';
-const MAX_OPA = process.env.MAX_OPA ? Number(process.env.MAX_OPA) : 50;
+const MAX_OPA = process.env.MAX_OPA ? Number(process.env.MAX_OPA) : 99;
 const LAST_N = process.env.LAST_N ? Number(process.env.LAST_N) : 8;
 
 // ============ HELPER FUNCTIONS ============
